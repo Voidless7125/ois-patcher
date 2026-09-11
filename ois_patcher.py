@@ -165,7 +165,7 @@ def validate_pe(data, label):
     except Exception as e:
         return False, (f"{label} is not a Windows executable this tool can read ({e}). "
                        f"If this file is truncated or corrupt, use Steam's \"Verify integrity "
-                       f"of game files\" (or reinstall from GOG) to get a good copy.")
+                       f"of game files\" to get a good copy.")
     try:
         image_base = pe.OPTIONAL_HEADER.ImageBase  # read it before close()
     except Exception as e:
@@ -1790,7 +1790,7 @@ def uninstall(game_dir, assume_yes=False, keep_backups=False, extra_exes=()):
             restorable.append(exe_path)
         elif status.is_patched:
             print(f"  {'':<16} -> cannot be reverted by this script. Use Steam's "
-                  f"\"Verify integrity of game files\" (or reinstall from GOG) to get a stock copy.")
+                  f"\"Verify integrity of game files\" to get a stock copy.")
 
     mod_present = mod_dir.is_dir()
     print(f"  {'bugfix mod':<16} {'installed' if mod_present else 'not installed'}")
@@ -1851,8 +1851,8 @@ def prepare_for_patch(client_exe, force=False, assume_yes=False):
     if client.state == STATE_UNREADABLE:
         print(f"\n[ERROR] {client_exe.name} is not a Windows executable this tool can read.\n"
               f"        {client_exe}\n"
-              f'        Use Steam\'s "Verify integrity of game files" (or reinstall from GOG)\n'
-              f"        to get a good copy, then run this again.", file=sys.stderr)
+              f'        Use Steam\'s "Verify integrity of game files" to get a good copy,\n'
+              f"        then run this again.", file=sys.stderr)
         return None
 
     def is_current(status):
@@ -1895,13 +1895,17 @@ def prepare_for_patch(client_exe, force=False, assume_yes=False):
     else:
         label = "an unversioned build"
 
-    # Every exe that is patched (or that --force is about to re-patch)
-    # needs a usable backup before anything is touched.
+    # Every exe that is ALREADY patched needs a usable backup before it can
+    # be restored and re-patched. --force only changes whether an already-
+    # current exe gets re-patched anyway; it never extends restoration to
+    # an exe that was never patched in the first place (a stock exe has
+    # nothing to restore from, and treating a leftover backup file as
+    # license to touch it would be a surprising thing for --force to do).
     to_restore = []
     for status in (client, server):
         if status.state == STATE_MISSING:
             continue
-        if not status.is_patched and not force:
+        if not status.is_patched:
             continue
         if status.state == STATE_UNREADABLE:
             print(f"\n[ERROR] {status.path.name} is not readable as a PE file; "
@@ -1912,13 +1916,13 @@ def prepare_for_patch(client_exe, force=False, assume_yes=False):
             print(f"\n[ERROR] {status.path.name} is {status.describe()}, but its backup can't be "
                   f"used ({reason}).\n"
                   f"        Updating means restoring the original first, so this can't proceed.\n"
-                  f"        Use Steam's \"Verify integrity of game files\" (or reinstall from GOG)\n"
-                  f"        to get a stock copy, then run this script again.", file=sys.stderr)
+                  f"        Use Steam's \"Verify integrity of game files\" to get a stock copy,\n"
+                  f"        then run this script again.", file=sys.stderr)
             return None
         to_restore.append(status.path)
 
     if force and not client.is_patched:
-        print(f"\n--force: restoring from backup and re-patching from scratch.")
+        print(f"\n--force: re-patching (nothing to restore -- {client_exe.name} isn't currently patched).")
     else:
         print(f"\nThis install was patched by {label}; this script is v{PATCHER_VERSION}.")
         print("Updating means restoring the original exe(s) from their backups and applying")
@@ -2075,8 +2079,8 @@ def check_for_updates(assume_update=False):
 def main():
     parser = argparse.ArgumentParser(
         description="Unofficial Objects in Space (ois.exe) bugfix patcher",
-        epilog="With no arguments, the game folder is detected automatically "
-               f"(Steam and GOG), falling back to the {TARGET_DIR_ENV} environment "
+        epilog="With no arguments, the game folder is detected automatically, "
+               f"falling back to the {TARGET_DIR_ENV} environment "
                "variable and then to asking.",
     )
     parser.add_argument("exe_path", nargs="?",
