@@ -172,13 +172,15 @@ python ois_patcher.py
 ```
 
 That's it — no path required. The patcher looks for your game the same
-way Steam and GOG themselves would: Steam's own registry entries and
-default install folders, every Steam library (including ones on other
-drives), and GOG's registry records, in that order. If it finds exactly
-one install, it uses it and tells you which one. If it finds more than
-one, it lists all of them and asks which to patch — nothing is ever
-silently picked for you between two installs. If it can't find one at
-all, it asks you to paste the path.
+way Steam itself would: Steam's own registry entries and default
+install folders, and every Steam library (including ones on other
+drives). It also checks GOG's registry records as a best-effort
+addition — that part is less thoroughly tested (see "Limitations"
+below), so a GOG install may not always be found automatically. If it
+finds exactly one install, it uses it and tells you which one. If it
+finds more than one, it lists all of them and asks which to patch —
+nothing is ever silently picked for you between two installs. If it
+can't find one at all, it asks you to paste the path.
 
 If you'd rather point it at a specific copy yourself — say, you have
 more than one install and want to skip the prompt, or auto-detection
@@ -330,16 +332,16 @@ delay) with `--no-update-check`.
   the one required package — run `pip install pefile` (or
   `py -m pip install pefile`) in a terminal, then try again.
 - **"Could not automatically find the game folder."** Auto-detection
-  covers standard Steam and GOG installs; an unusual setup (a
-  non-default GOG install path, a Steam library it couldn't see, a
-  storefront other than Steam/GOG) can miss yours. Paste the path when
-  asked, or run it with the path directly:
-  `python ois_patcher.py "C:\Path\To\Objects in Space"`.
+  covers standard Steam installs, plus a best-effort check for GOG (see
+  "Limitations" below); an unusual setup (a non-default install path, a
+  Steam library it couldn't see, a storefront other than Steam/GOG) can
+  miss yours. Paste the path when asked, or run it with the path
+  directly: `python ois_patcher.py "C:\Path\To\Objects in Space"`.
 - **It found more than one install and I don't recognize one of
   them.** Old installs (a previous drive, an old Steam library you
-  haven't cleaned up, a leftover GOG copy) can still show up here even
-  if you don't play from them anymore. Pick the one you actually use;
-  the others are just left alone.
+  haven't cleaned up) can still show up here even if you don't play
+  from them anymore. Pick the one you actually use; the others are just
+  left alone.
 - **It says some fixes were "skipped."** Scroll up in the output — the
   patcher always explains why (usually a different game version than
   this patch targets, 1.0.8, or that file already having been patched
@@ -482,52 +484,30 @@ non-commercial purposes, as long as you credit the original author
 
 ### 0.3.4 - 2026-09-02
 
-- **No more typing a path.** Running `python ois_patcher.py` with no
-  arguments now finds your Steam or GOG install automatically —
-  checking Steam's registry entries and default folders, every Steam
-  library including ones on other drives, and GOG's registry records.
-  Asks which install to use if it finds more than one, and asks you to
-  paste a path if it can't find any. Pointing it at a specific
-  `ois.exe` or install folder still works exactly as before, and a new
-  `--game-dir` flag and `OIS_TARGET_DIR` environment variable are
-  available for scripted setups.
-- **Added `--uninstall`**, which restores `ois.exe` and `ois_server.exe`
-  from their backups and removes the `oisbugfix` mod folder in one
-  step, after confirming what it's about to do. No more manual
-  copy-the-backup-back-yourself. Each backup is checked to make sure
-  it's a genuine unpatched original before being used, and the restore
-  is verified byte-for-byte after writing. `--yes` skips the
-  confirmation for scripted use; `--keep-backups` keeps the backup
-  files afterward instead of deleting them.
-- **Added `--status`**, which reports what's currently installed (which
-  exes are patched, by which version, whether their backups are usable,
-  whether the mod is installed) without changing anything.
-- **Updating is now automatic.** Running the patcher again against an
-  install patched by an older version of this tool now asks to update
-  it for you: restores the original from its backup, then re-applies
-  the current fixes to that clean original — never on top of an
-  already-patched file. An install already on the current version is
-  left alone (with the mod refreshed in case you'd deleted it). Trying
-  to run an *older* copy of the patcher against an install patched by a
-  *newer* one is now refused instead of silently downgrading it, unless
-  you pass `--force`.
-- **Added a self-update check.** If this patcher was set up via
-  `git clone`, a normal run now checks whether a newer version of the
-  script itself is available and offers to pull and use it, before
-  touching your game. Skipped automatically for a plain downloaded zip,
-  or if `git` isn't installed. `--update` accepts the update without
-  asking (for scripted runs); `--no-update-check` skips the check
-  entirely.
-- **More reliable failure handling throughout.** A truncated or
-  corrupted exe is now reported clearly and safely instead of crashing
-  with a raw error — and no longer leaves a stray backup file behind
-  when that happens. A corrupted `ois_server.exe` no longer prevents
-  `ois.exe` from being patched successfully. The data-only mod install
-  now degrades to a clear warning (matching what this README already
-  promised) instead of failing outright if its companion file is
-  missing. The patcher also checks that the target files are actually
-  writable (e.g. the game isn't currently running) before making any
-  changes, rather than partway through.
+- **No path required.** Running `python ois_patcher.py` with no
+  arguments now auto-detects your Steam (and, best-effort, GOG)
+  install, asking if it finds more than one or none at all. Explicit
+  paths, `--game-dir`, and `OIS_TARGET_DIR` still work as before.
+- **Added `--uninstall`**, which restores both exes from their backups
+  and removes the `oisbugfix` mod folder in one step, after confirming.
+  `--yes` skips confirmation; `--keep-backups` keeps the backup files.
+- **Added `--status`**, reporting what's currently installed (patch
+  state, backup availability, mod status) without changing anything.
+- **Updating is now automatic.** Re-running the patcher against an
+  older-patched install restores the original and re-applies current
+  fixes; an up-to-date install just gets its mod refreshed. Running an
+  older patcher against a newer-patched install is refused unless you
+  pass `--force`.
+- **Added a self-update check** for `git clone` setups: a normal run
+  checks for a newer patcher upstream and offers to pull it before
+  touching your game. Skipped automatically for a downloaded zip or
+  without `git`. `--update` accepts without asking; `--no-update-check`
+  skips it.
+- **More reliable failure handling.** Corrupted exes are reported
+  cleanly instead of crashing, a broken `ois_server.exe` no longer
+  blocks patching `ois.exe`, the mod install degrades to a warning
+  instead of failing outright, and file writability is checked before
+  any changes are made.
 
 ( credit to Voidless7125 for this amazing usability update! )
 
