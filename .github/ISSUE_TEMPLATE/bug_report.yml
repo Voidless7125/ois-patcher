@@ -1,0 +1,117 @@
+name: Game bug
+description: Something in Objects in Space is broken, crashes, or doesn't work the way it clearly should.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting! This patch fixes things the developers clearly *meant* to work (crashes, typos, broken logic). It doesn't change balance, difficulty, or content. See the README's "Goal" section. If you're not sure whether something counts, report it anyway.
+
+        **Before you start:** the game overwrites its log every time it launches. If this just happened, copy the log (see below) **before** starting the game again.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Describe the problem. If it's something on screen, a screenshot helps a lot. You can paste or drag images straight into this box.
+      placeholder: e.g. "After deleting an email and pressing Q, the deleted email shows up again above the CMD> prompt."
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: The exact steps to make it happen again, starting from somewhere easy to reach (a save, a new game, or the main menu). Include the ship and the room or screen if it matters.
+      placeholder: |
+        1. Load a save on the Ceres Mk III
+        2. Go through the airlock into the cabin
+        3. Click the posters on the wall
+        4. Scroll the mouse wheel up
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect to happen?
+      placeholder: e.g. "Scrolling up should zoom back out, like it does on every monitor."
+    validations:
+      required: true
+
+  - type: dropdown
+    id: frequency
+    attributes:
+      label: How often does it happen?
+      options:
+        - Every time
+        - Sometimes
+        - Only happened once
+    validations:
+      required: true
+
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Game mode
+      options:
+        - Singleplayer
+        - Co-op / LAN, as host
+        - Co-op / LAN, as client
+        - Main menu (before loading a game)
+    validations:
+      required: true
+
+  - type: input
+    id: patcher-version
+    attributes:
+      label: Patcher version
+      description: Run `python ois_patcher.py --status` and copy the version it reports. Write "not patched" if you haven't run the patcher.
+      placeholder: e.g. 0.3.7
+    validations:
+      required: true
+
+  - type: dropdown
+    id: unpatched
+    attributes:
+      label: Does it also happen without the patch?
+      description: Optional, but very useful. `python ois_patcher.py --uninstall --keep-backups` puts the original game back temporarily. Re-run the patcher afterward.
+      options:
+        - Not tested
+        - "Yes, it happens on the unpatched game too"
+        - "No, it only happens with the patch installed"
+    validations:
+      required: false
+
+  - type: textarea
+    id: log
+    attributes:
+      label: Debug log
+      description: |
+        Attach or paste the game log, **copied before relaunching the game** (it's overwritten on every launch):
+        `<game folder>\ObjectsInSpace\log\DebugLog_Game.txt`
+        If you were hosting co-op, also include `DebugLog_Server.txt` from the same folder. The logs can be long, so attaching the file (drag it into this box) works best.
+      placeholder: Drag DebugLog_Game.txt here, or paste the lines around when it happened.
+      render: text
+    validations:
+      required: false
+
+  - type: textarea
+    id: crash
+    attributes:
+      label: Crash file (if the game crashed)
+      description: |
+        A crash writes a file named `crash_<date>_<time>.txt` to `<game folder>\ObjectsInSpace\`. Attach the one matching when it crashed.
+      placeholder: Drag the crash_*.txt file here.
+      render: text
+    validations:
+      required: false
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else?
+      description: Other mods installed, a save file that reproduces it (zip it and attach it), or anything else that might help.
+    validations:
+      required: false

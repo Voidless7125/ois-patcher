@@ -155,7 +155,7 @@ SERVER_FIXES_SKIPPED = []
 # already patched" refusal means "you already ran this exact version" or
 # "an older version patched this -- restore the backup and re-run to
 # upgrade", instead of one generic message either way.
-PATCHER_VERSION = "0.3.6"
+PATCHER_VERSION = "0.3.7"
 VERSION_MARKER_PREFIX = b"OISPATCH:"
 VERSION_MARKER_SIZE = 32  # reserved bytes at the start of .ptch's raw data
 
@@ -1528,6 +1528,245 @@ def fix_addon_move_oob(data, pe, ptch_va, ptch_off, cave_cursor):
 
 
 # ============================================================
+# Fix 15: deleting an email in the PC terminal's MAIL app (D, D) then
+# quitting (Q) leaves a frozen copy of the email list above the CMD> prompt,
+# with the just-deleted email back at the top. TextEngine::showList stashes
+# the terminal's display lines into a backup vector before drawing a list,
+# and finishShowingList restores them on Q -- but showList did the stash
+# unconditionally, so re-showing the list while it was already open (the
+# delete path redraws it) overwrote the backup with the pre-delete list,
+# which Q then "restored". Fix: skip the stash while the backup still holds
+# an unrestored scrollback (non-empty; finishShowingList always empties it).
+# See BUGS.md BUG-021.
+# ============================================================
+
+def fix_showlist_backup_clobber(data, pe, ptch_va, ptch_off, cave_cursor):
+    label = "Deleted email reappears in the MAIL terminal after quitting"
+    PATCH_SITE_VA = 0x0042cffc
+    DO_SAVE_VA = 0x0042d006    # original backup.assign(display) call
+    SKIP_SAVE_VA = 0x0042d016  # original "skip the save" target
+
+    expected = bytes([
+        0x8B, 0x76, 0x08,   # MOV ESI,[ESI+0x8]    (display vector*)
+        0x8D, 0x4F, 0x0C,   # LEA ECX,[EDI+0xc]    (&backup)
+        0x3B, 0xCE,         # CMP ECX,ESI
+        0x74, 0x10,         # JZ  0x0042d016
+    ])
+    off = verify_site(data, pe, PATCH_SITE_VA, expected, label)
+    if off is None:
+        FIXES_SKIPPED.append(label)
+        return cave_cursor
+
+    neutralize_relocations(data, pe, PATCH_SITE_VA, len(expected), label)
+
+    cave = bytearray()
+    fixups = []
+    def emit(b): cave.extend(b)
+    def emit_rel32(prefix, target):
+        emit(prefix + b"\x00\x00\x00\x00"); fixups.append((len(cave) - 4, target))
+
+    emit(expected[:8])                        # replay MOV / LEA / CMP
+    emit_rel32(b"\x0F\x84", SKIP_SAVE_VA)     # JZ  skip                 (original)
+    emit(bytes([0x50]))                       # PUSH EAX
+    emit(bytes([0x8B, 0x41, 0x04]))           # MOV EAX,[ECX+0x4]        backup.end
+    emit(bytes([0x3B, 0x01]))                 # CMP EAX,[ECX]            backup.begin
+    emit(bytes([0x58]))                       # POP EAX                  (flags untouched)
+    emit_rel32(b"\x0F\x85", SKIP_SAVE_VA)     # JNZ skip -- backup holds an unrestored scrollback
+    emit_rel32(b"\xE9", DO_SAVE_VA)           # JMP do the original save
+
+    cave_va = ptch_va + cave_cursor
+    for pos, target in fixups:
+        struct.pack_into("<i", cave, pos, target - (cave_va + pos + 4))
+
+    data[ptch_off + cave_cursor: ptch_off + cave_cursor + len(cave)] = cave
+    cave_cursor += len(cave)
+
+    redirect = bytearray([0xE9, 0, 0, 0, 0])
+    struct.pack_into("<i", redirect, 1, cave_va - (PATCH_SITE_VA + 5))
+    redirect += b"\x90" * (len(expected) - len(redirect))
+    data[off:off + len(expected)] = redirect
+
+    print(f"  [OK] {label}")
+    FIXES_APPLIED.append(label)
+    return cave_cursor
+
+
+# ============================================================
+# Fix 16: the last row of the Input Configuration key-binding list (PDA and
+# main menu -- "Decrease Main Drive Power") can never be scrolled into view.
+# UI_Sheet's row count (this+0x440) is height/12 minus the selecttext prompt
+# row, but render spends row 0 on the titles header while every scroll check
+# treats the count as data rows, so scrolling always stops one short. Fix:
+# subtract the header row in the constructor too (in place), and have
+# render's row loop run one extra row when there's a header (small cave).
+# See BUGS.md BUG-030 (GitHub issue #27).
+# ============================================================
+
+def fix_sheet_last_row(data, pe, ptch_va, ptch_off, cave_cursor):
+    label = "Last key binding hidden in the Input Configuration list"
+
+    # --- site A: UI_Sheet::UI_Sheet row count, rewritten in place ---
+    SITEA_VA = 0x0058a6a3
+    expectedA = bytes([
+        0x80, 0xBF, 0x55, 0x04, 0x00, 0x00, 0x00,   # CMP byte ptr [EDI+0x455],0   (selecttext)
+        0x74, 0x09,                                 # JZ  0x0058a6b5
+        0x8D, 0x46, 0xFF,                           # LEA EAX,[ESI-1]
+        0x89, 0x87, 0x40, 0x04, 0x00, 0x00,         # MOV [EDI+0x440],EAX
+    ])
+    offA = verify_site(data, pe, SITEA_VA, expectedA, label + " (row count)")
+    if offA is None:
+        FIXES_SKIPPED.append(label)
+        return cave_cursor
+
+    # --- site B: UI_Sheet::render row-loop bound ---
+    SITEB_VA = 0x0058b2fc
+    LOOP_HEAD_VA = 0x0058ac53
+    LOOP_EXIT_VA = 0x0058b308
+    expectedB = bytes([
+        0x3B, 0xB7, 0x40, 0x04, 0x00, 0x00,         # CMP ESI,[EDI+0x440]
+        0x0F, 0x8C, 0x4B, 0xF9, 0xFF, 0xFF,         # JL  0x0058ac53
+    ])
+    offB = verify_site(data, pe, SITEB_VA, expectedB, label + " (render loop)")
+    if offB is None:
+        FIXES_SKIPPED.append(label)
+        return cave_cursor
+
+    neutralize_relocations(data, pe, SITEA_VA, len(expectedA), label + " (row count)")
+    neutralize_relocations(data, pe, SITEB_VA, len(expectedB), label + " (render loop)")
+
+    # [EDI+0x440] already holds height/12 here; both flag bytes are only
+    # ever 0 or 1, adjacent at +0x454 (titles) / +0x455 (selecttext).
+    data[offA:offA + len(expectedA)] = bytes([
+        0x0F, 0xB7, 0x87, 0x54, 0x04, 0x00, 0x00,   # MOVZX EAX,word ptr [EDI+0x454]
+        0x02, 0xC4,                                 # ADD AL,AH           (titles + selecttext)
+        0x0F, 0xB6, 0xC0,                           # MOVZX EAX,AL
+        0x29, 0x87, 0x40, 0x04, 0x00, 0x00,         # SUB [EDI+0x440],EAX
+    ])
+
+    cave = bytearray()
+    fixups = []
+    def emit(b): cave.extend(b)
+    def emit_rel32(prefix, target):
+        emit(prefix + b"\x00\x00\x00\x00"); fixups.append((len(cave) - 4, target))
+
+    emit(bytes([0x03, 0x87, 0x40, 0x04, 0x00, 0x00]))  # ADD EAX,[EDI+0x440]  rows = data rows + header
+    emit(bytes([0x3B, 0xF0]))                          # CMP ESI,EAX
+    emit_rel32(b"\x0F\x8C", LOOP_HEAD_VA)              # JL  loop head
+    emit_rel32(b"\xE9", LOOP_EXIT_VA)                  # JMP loop exit
+
+    cave_va = ptch_va + cave_cursor
+    for pos, target in fixups:
+        struct.pack_into("<i", cave, pos, target - (cave_va + pos + 4))
+
+    data[ptch_off + cave_cursor: ptch_off + cave_cursor + len(cave)] = cave
+    cave_cursor += len(cave)
+
+    redirect = bytearray([0x0F, 0xB6, 0x87, 0x54, 0x04, 0x00, 0x00])  # MOVZX EAX,byte ptr [EDI+0x454]
+    redirect += bytes([0xE9]) + struct.pack("<i", cave_va - (SITEB_VA + len(redirect) + 5))
+    data[offB:offB + len(expectedB)] = redirect
+
+    print(f"  [OK] {label}")
+    FIXES_APPLIED.append(label)
+    return cave_cursor
+
+
+# ============================================================
+# Fix 17: once Fix 16 makes it visible, the "Decrease Main Drive Power" key
+# binding label sits one character right of every other row -- an original
+# typo, a stray space after its colour code. Rewritten in place without it
+# (pure data, same byte span). Keybinds are saved by key code, not label,
+# so existing bindings are unaffected. See BUGS.md BUG-030.
+# ============================================================
+
+def fix_decrease_drive_label(data, pe):
+    label = "Stray space in the \"Decrease Main Drive Power\" key binding label"
+    STR_VA = 0x00620ba4
+    expected = b"\x607 Decrease Main Drive Power\x00"    # \x60 = colour-code backtick
+    off = verify_site(data, pe, STR_VA, expected, label)
+    if off is None:
+        FIXES_SKIPPED.append(label)
+        return
+    data[off:off + len(expected)] = b"\x607Decrease Main Drive Power\x00\x00"
+    print(f"  [OK] {label}")
+    FIXES_APPLIED.append(label)
+
+
+# ============================================================
+# Fix 18: clicking the posters in the Ceres Mk III cabin (or the desk PC in
+# the Enceladus cabin, or the Proxima's equivalent) zooms the camera in, but
+# the scroll wheel can't zoom back out. Those are the game's only
+# cameraclick=true objects: they move the camera without focusing a screen,
+# and PresentationInterface::onMouseScroll only backed out when a screen was
+# focused (this+0x350). Fix: also back out when this+0x3b0 (current camera
+# position, -1 = default view) != -1 -- the same test the Escape key uses.
+# Rewrites a 72-byte block in place (no cave): room comes from replacing a
+# 24-byte stack build of the cursor Vec2 argument with two PUSHes. See
+# BUGS.md BUG-031 (GitHub issue #24).
+# ============================================================
+
+def fix_scroll_back_cameraclick(data, pe):
+    label = "Scroll wheel can't zoom back out of cabin close-ups"
+    SITE_VA = 0x0053220f
+    DO_MOVE_VA = 0x00532257               # moveToCameraPos call site (untouched)
+    SKIP_VA = 0x00532266
+    GET_OBJECT_CLICKED_ON_VA = 0x00537050
+
+    expected = bytes.fromhex(
+        "83BF5003000000" "7539" "84C0" "744A"                                   # focused? / zoom in?
+        "F30F1045EC" "83EC08" "8BC4" "F30F1100" "F30F1045F0" "F30F114004"       # Vec2 cursor arg on stack
+        "8B8FD4020000" "E8114E0000" "85C0" "7423" "8B8084030000" "83F8FF" "7418" "50" "EB06"
+        "84C0" "7511" "6AFF"                                                    # focused: back out
+    )
+    off = verify_site(data, pe, SITE_VA, expected, label)
+    if off is None:
+        FIXES_SKIPPED.append(label)
+        return
+
+    neutralize_relocations(data, pe, SITE_VA, len(expected), label)
+
+    new = bytearray()
+    labels, fix8 = {}, []
+    def emit(b): new.extend(b)
+    def mark(n): labels[n] = SITE_VA + len(new)
+    def jcc8(op, target): emit(bytes([op, 0])); fix8.append((len(new) - 1, target))
+
+    emit(b"\x90" * 4)                            # pad: block must end exactly at DO_MOVE_VA
+    emit(bytes.fromhex("84C0"))                  # TEST AL,AL                  (AL = zoom in)
+    jcc8(0x74, "back")                           # JZ   back
+    emit(bytes.fromhex("83BF5003000000"))        # CMP  dword [EDI+0x350],0
+    jcc8(0x75, SKIP_VA)                          # JNZ  skip   (zoom in only when unfocused)
+    emit(bytes.fromhex("FF75F0"))                # PUSH dword [EBP-0x10]       (cursor y)
+    emit(bytes.fromhex("FF75EC"))                # PUSH dword [EBP-0x14]       (cursor x)
+    emit(bytes.fromhex("8B8FD4020000"))          # MOV  ECX,[EDI+0x2d4]        (Room*)
+    call_pos = len(new)
+    emit(bytes([0xE8, 0, 0, 0, 0]))              # CALL Room::getObjectClickedOn
+    emit(bytes.fromhex("85C0"))                  # TEST EAX,EAX
+    jcc8(0x74, SKIP_VA)                          # JZ   skip
+    emit(bytes.fromhex("8B8084030000"))          # MOV  EAX,[EAX+0x384]        (object's camera id)
+    emit(bytes.fromhex("83F8FF"))                # CMP  EAX,-1
+    jcc8(0x74, SKIP_VA)                          # JZ   skip
+    emit(bytes.fromhex("50"))                    # PUSH EAX
+    jcc8(0xEB, DO_MOVE_VA)                       # JMP  do_move
+    mark("back")
+    emit(bytes.fromhex("83BF5003000000"))        # CMP  dword [EDI+0x350],0
+    jcc8(0x75, "push_m1")                        # JNZ  push_m1  (focused screen: back out, as before)
+    emit(bytes.fromhex("83BFB0030000FF"))        # CMP  dword [EDI+0x3b0],-1
+    jcc8(0x74, SKIP_VA)                          # JZ   skip     (already at the default view)
+    mark("push_m1")
+    emit(bytes.fromhex("6AFF"))                  # PUSH -1 -> falls into do_move
+
+    assert len(new) == len(expected)
+    for pos, target in fix8:
+        t = labels[target] if isinstance(target, str) else target
+        new[pos] = (t - (SITE_VA + pos + 1)) & 0xFF
+    struct.pack_into("<i", new, call_pos + 1, GET_OBJECT_CLICKED_ON_VA - (SITE_VA + call_pos + 5))
+    data[off:off + len(expected)] = new
+
+    print(f"  [OK] {label}")
+    FIXES_APPLIED.append(label)
+
+
+# ============================================================
 # Fix 9: Pirate Hunt spawn-selection bounds-check guard -- ois_server.exe
 # copy of the same bug as fix_pirate_hunt above. ois.exe and ois_server.exe
 # both compile GameLogic::resetShipsInScenario; the missing bounds-check
@@ -2707,6 +2946,10 @@ def main():
     cave_cursor = fix_trade_pod_error_args(data, pe, ptch_va, ptch_off, cave_cursor)
     cave_cursor = fix_quit_networked_disconnect(data, pe, ptch_va, ptch_off, cave_cursor)
     cave_cursor = fix_addon_move_oob(data, pe, ptch_va, ptch_off, cave_cursor)
+    cave_cursor = fix_showlist_backup_clobber(data, pe, ptch_va, ptch_off, cave_cursor)
+    cave_cursor = fix_sheet_last_row(data, pe, ptch_va, ptch_off, cave_cursor)
+    fix_decrease_drive_label(data, pe)
+    fix_scroll_back_cameraclick(data, pe)
     pe.close()
 
     if cave_cursor > ptch_size:

@@ -1,0 +1,94 @@
+name: Patcher problem
+description: ois_patcher.py won't run, can't find your game, skips fixes, or fails to install or uninstall.
+title: "[Patcher]: "
+labels: ["patcher"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this if the **patcher itself** isn't working. For a bug in the game, use "Game bug" instead.
+
+        Many common problems (a window flashing and closing, `python` not recognized, a missing `pefile` module, or the game folder not being found) are covered in the README's **Troubleshooting** section. It's worth a quick look first.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      placeholder: e.g. "It says it couldn't find the game folder, but the game is installed on D:."
+    validations:
+      required: true
+
+  - type: input
+    id: command
+    attributes:
+      label: Command you ran
+      description: The exact command, including any options.
+      placeholder: python ois_patcher.py --status
+    validations:
+      required: true
+
+  - type: textarea
+    id: output
+    attributes:
+      label: Full patcher output
+      description: Copy **everything** the patcher printed, from start to finish. The skipped/failed messages usually explain the problem, and they're easy to miss in a partial copy.
+      render: text
+    validations:
+      required: true
+
+  - type: textarea
+    id: status
+    attributes:
+      label: Output of `python ois_patcher.py --status`
+      description: Shows what's currently installed. It doesn't change anything, so it's safe to run.
+      render: text
+    validations:
+      required: false
+
+  - type: input
+    id: patcher-version
+    attributes:
+      label: Patcher version
+      description: Shown at the top of the patcher's output, or by `--status`.
+      placeholder: e.g. 0.3.7
+    validations:
+      required: true
+
+  - type: dropdown
+    id: source
+    attributes:
+      label: How did you get the patcher?
+      options:
+        - git clone
+        - Downloaded zip / release
+    validations:
+      required: true
+
+  - type: dropdown
+    id: store
+    attributes:
+      label: Where is the game from?
+      options:
+        - Steam
+        - GOG
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: python
+    attributes:
+      label: Python version
+      description: Run `python --version` (or `py --version`).
+      placeholder: e.g. Python 3.12.4
+    validations:
+      required: false
+
+  - type: input
+    id: game-path
+    attributes:
+      label: Game folder location
+      description: Where the game is installed. Feel free to shorten your user name.
+      placeholder: e.g. D:\SteamLibrary\steamapps\common\Objects in Space
+    validations:
+      required: false
