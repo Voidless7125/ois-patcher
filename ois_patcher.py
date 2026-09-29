@@ -90,6 +90,8 @@ Applies (all client-only, ois.exe):
   - Mechanixx jump drive / solar wing Range rating ladders fitted to the
     shipped modules; sensor "Strength" -> "Quality", grappler "Speed" ->
     "Grpl. Time" labels.
+  - Sensors' constant "Range : 0Gm" line removed from the Mechanixx
+    module info.
   - Full Stop docked-state exploit: triggering Full Stop while docked
     silently undocks the ship in every system's eyes except the game's
     own dock/undock bookkeeping -- no fee, no undocking permission
@@ -1708,6 +1710,37 @@ def fix_module_stat_labels(data, pe):
 
 
 # ============================================================
+# Fix 22: every sensor in Mechanixx shows "Range : 0Gm". The line prints
+# the module's range slot, but sensors never define one (LADAR does, via
+# ladarrange, and is a separate module type with its own display code), so
+# it is always 0 and only pushes the real stats down. The sensor block's
+# format string operand is repointed to an existing NUL terminator (an
+# empty format prints nothing); keeping the operand a plain absolute
+# address means its relocation entry stays valid, so this is ASLR-safe.
+# The hacker module's own Range line (an earlier call) is untouched.
+# ============================================================
+
+def fix_sensor_range_line(data, pe):
+    label = "Sensors always show 'Range : 0Gm' in Mechanixx"
+    SITE_VA = 0x00493cbc                                     # PUSH imm32 "`7Range     : `!%.0fGm\n"
+    RANGE_FMT_VA = 0x0060e0f4
+    range_fmt = b"\x607Range     : \x60!%.0fGm\n\x00"
+    EMPTY_VA = RANGE_FMT_VA + len(range_fmt) - 1             # that string's own NUL terminator
+    expected = bytes([0x68]) + struct.pack("<I", RANGE_FMT_VA)
+    if verify_site(data, pe, RANGE_FMT_VA, range_fmt, label + " (format)") is None:
+        FIXES_SKIPPED.append(label)
+        return
+    empty_off = verify_site(data, pe, EMPTY_VA, b"\x00", label + " (empty string)")
+    off = verify_site(data, pe, SITE_VA, expected, label)
+    if off is None or empty_off is None:
+        FIXES_SKIPPED.append(label)
+        return
+    struct.pack_into("<I", data, off + 1, EMPTY_VA)
+    print(f"  [OK] {label}")
+    FIXES_APPLIED.append(label)
+
+
+# ============================================================
 # Fix 18: clicking the posters in the Ceres Mk III cabin (or the desk PC in
 # the Enceladus cabin, or the Proxima's equivalent) zooms the camera in, but
 # the scroll wheel can't zoom back out. Those are the game's only
@@ -2969,6 +3002,7 @@ def main():
     cave_cursor = fix_torpedo_sight_range(data, pe, ptch_va, ptch_off, cave_cursor)
     fix_module_rating_bands(data, pe)
     fix_module_stat_labels(data, pe)
+    fix_sensor_range_line(data, pe)
     fix_scroll_back_cameraclick(data, pe)
     pe.close()
 

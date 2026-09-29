@@ -524,6 +524,16 @@ before:
   detection quality, and "Strength" means sturdiness everywhere else) now
   reads "Quality"; the grappling arm's "Speed" (really a time, where lower
   is faster) now reads "Grpl. Time". Labels only; values unchanged.
+- **Comms terminal "?" (help) and log buttons do nothing** — the Comms
+  Download / Sync terminal is a square (192×192) screen, and the game only
+  has help/log pages for 4:3 and 16:9 screens, so the buttons can never
+  work there on any ship. The Enceladus and Proxima versions set
+  `hasmenu=true`; that is now cleared so all three ships match (Ceres III
+  never set it). (Mod-only fix.) I have not confirmed in-game that the
+  icons disappear with the flag cleared — please check.
+- **Sensors always show "Range : 0Gm" in Mechanixx** — sensors never
+  define a range (LADAR does, and is a separate module type), so the line
+  was permanently 0 and only pushed the real stats down. Removed.
 - **Scroll wheel can't zoom back out of cabin close-ups** — clicking the
   posters in the Ceres Mk III cabin (or the desk PC in the Enceladus
   cabin, or the Proxima's equivalent) zooms the camera in, but scrolling
@@ -570,6 +580,8 @@ non-commercial purposes, as long as you credit the original author
 
 ### 0.3.9
 
+- Comms terminal: `hasmenu` cleared on Enceladus/Proxima so all three ships match (mod).
+- Mechanixx: sensor "Range : 0Gm" line removed.
 - Civilians now notice torpedoes out to 350 units instead of 100 (#18).
 - Mechanixx: jump drive and solar wing Range ratings recalibrated to the
   modules that ship; sensor "Strength" relabelled "Quality"; grappler
