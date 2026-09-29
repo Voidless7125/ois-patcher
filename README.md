@@ -578,7 +578,7 @@ non-commercial purposes, as long as you credit the original author
 
 ## Version history
 
-### 0.3.9
+### 0.3.8
 
 - Comms terminal: `hasmenu` cleared on Enceladus/Proxima so all three ships match (mod).
 - Mechanixx: sensor "Range : 0Gm" line removed.
@@ -586,8 +586,6 @@ non-commercial purposes, as long as you credit the original author
 - Mechanixx: jump drive and solar wing Range ratings recalibrated to the
   modules that ship; sensor "Strength" relabelled "Quality"; grappler
   "Speed" relabelled "Grpl. Time".
-
-### 0.3.8
 
 - Fixed a regression: the mail-terminal `DEL` command could delete
   commands. The original game never let you; it now only refuses, as
