@@ -491,6 +491,29 @@ before:
   *destination* is an addon slot) instead of crashing. **This does not
   re-enable or restore shield components** — it only stops the crash if
   one is ever present.
+- **Deleted email reappears in the PC terminal's mail app after
+  quitting** — deleting an email and then quitting the mail app left a
+  frozen copy of the whole email list on screen, with the email you just
+  deleted back at the top. The terminal saves its existing text before
+  showing the list and puts it back when you quit, but deleting an email
+  redraws the list and was overwriting that saved text with the
+  pre-delete list. Quitting now returns the terminal to exactly how it
+  was before you opened the mail app.
+- **Last key binding hidden in the Input Configuration list** —
+  "Decrease Main Drive Power", the last entry in the key-binding list
+  (both the PDA's and the main menu's), could never be scrolled into
+  view; you could only bind it by clicking the blank space under the
+  list. The list was counting its "Command | Key" header as one of its
+  visible rows, so it always stopped scrolling one row short. Also
+  removes a stray space in that entry's label that made it sit one
+  character to the right of the others once it was visible.
+- **Scroll wheel can't zoom back out of cabin close-ups** — clicking the
+  posters in the Ceres Mk III cabin (or the desk PC in the Enceladus
+  cabin, or the Proxima's equivalent) zooms the camera in, but scrolling
+  up didn't zoom back out like it does everywhere else — only right-click
+  or Escape worked. These are the only close-ups in the game that don't
+  focus a screen, and the scroll wheel only knew how to back out of
+  screens. It now backs out of these too, the same way Escape does.
 
 ## Limitations
 
@@ -527,6 +550,21 @@ non-commercial purposes, as long as you credit the original author
 (Leeway). See [LICENSE](LICENSE) for the full terms.
 
 ## Version history
+
+### 0.3.7 - 2026-09-26
+
+- **New fix: deleted email reappears after quitting the mail app.** Quitting
+  the PC terminal's mail app right after deleting an email no longer leaves
+  a frozen copy of the list (with the deleted email back in it) on screen;
+  the terminal goes back to exactly how it was before you opened mail.
+- **New fix: last key binding hidden in the Input Configuration list**
+  (GitHub issue #27). "Decrease Main Drive Power" now scrolls into view in
+  both the PDA and main-menu key-binding lists, and its label lines up
+  with the others.
+- **New fix: scroll wheel can't zoom back out of cabin close-ups** (GitHub
+  issue #24). Scrolling up now zooms back out after clicking the posters in
+  the Ceres Mk III cabin, the desk PC in the Enceladus cabin, or the
+  Proxima's cabin equivalent.
 
 ### 0.3.6 - 2026-09-24
 

@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Troubleshooting guide
+    url: https://github.com/l33way/ois-patcher#troubleshooting
+    about: Common patcher problems (Python not found, game folder not detected, skipped fixes) and how to fix them.
