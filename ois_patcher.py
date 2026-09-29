@@ -86,6 +86,10 @@ Applies (all client-only, ois.exe):
   - Input Configuration texts wider than their column ("Switch Tabs On
     Current Screen", "Toggle Point Defence Laser", "unbound") shortened
     in place so they no longer run off the screen.
+  - Civilian torpedo awareness radius raised from 100 to 350 units (#18).
+  - Mechanixx jump drive / solar wing Range rating ladders fitted to the
+    shipped modules; sensor "Strength" -> "Quality", grappler "Speed" ->
+    "Grpl. Time" labels.
   - Full Stop docked-state exploit: triggering Full Stop while docked
     silently undocks the ship in every system's eyes except the game's
     own dock/undock bookkeeping -- no fee, no undocking permission
@@ -154,7 +158,7 @@ SERVER_FIXES_SKIPPED = []
 # already patched" refusal means "you already ran this exact version" or
 # "an older version patched this -- restore the backup and re-run to
 # upgrade", instead of one generic message either way.
-PATCHER_VERSION = "0.3.8"
+PATCHER_VERSION = "0.3.9"
 VERSION_MARKER_PREFIX = b"OISPATCH:"
 VERSION_MARKER_SIZE = 32  # reserved bytes at the start of .ptch's raw data
 
@@ -1582,6 +1586,128 @@ def fix_input_config_overflow(data, pe):
 
 
 # ============================================================
+# Fix 19 (issue #18): a civilian only counts an inbound torpedo when the
+# torpedo is within 100 units of it. ShipBehaviour::respondToPirateDemand
+# walks the civilian's own sensor contacts, and for every torpedo contact
+# (object type 4) compares its presumed distance from the civilian against
+# 100.0; a torpedo inside that radius makes the pirate demand ~1.5x more
+# likely to be obeyed. Anything the civilian can see but that is further
+# away is ignored, so torpedoes launched from beyond 100 never register.
+# Raised to 350.0 (per the issue). The 100.0 comes from a shared constant
+# pool (158 other users), so it must not be edited in place: this
+# replaces only this one load, with a 350.0 immediate, in a cave.
+# This is a judgement call about intended range, not a proven crash/typo
+# fix -- see the README entry.
+# ============================================================
+
+def fix_torpedo_sight_range(data, pe, ptch_va, ptch_off, cave_cursor):
+    label = "Civilians only notice torpedoes within 100 units (raised to 350)"
+    SITE_VA, RESUME_VA = 0x00504d72, 0x00504d7a
+    expected = bytes([0xF3, 0x0F, 0x10, 0x05, 0x64, 0x17, 0x63, 0x00])  # MOVSS XMM0,[100.0f]
+    off = verify_site(data, pe, SITE_VA, expected, label)
+    if off is None:
+        FIXES_SKIPPED.append(label)
+        return cave_cursor
+
+    neutralize_relocations(data, pe, SITE_VA, len(expected), label)
+
+    cave = bytearray()
+    cave += bytes([0xB8]) + struct.pack("<f", 350.0)     # MOV EAX,350.0f (EAX is dead here)
+    cave += bytes([0x66, 0x0F, 0x6E, 0xC0])              # MOVD XMM0,EAX
+    jmp_pos = len(cave)
+    cave += bytes([0xE9, 0, 0, 0, 0])
+    cave_va = ptch_va + cave_cursor
+    struct.pack_into("<i", cave, jmp_pos + 1, RESUME_VA - (cave_va + jmp_pos + 5))
+    data[ptch_off + cave_cursor: ptch_off + cave_cursor + len(cave)] = cave
+
+    redirect = bytearray([0xE9, 0, 0, 0, 0])
+    struct.pack_into("<i", redirect, 1, cave_va - (SITE_VA + 5))
+    redirect += b"\x90" * (len(expected) - len(redirect))
+    data[off:off + len(expected)] = redirect
+
+    print(f"  [OK] {label}")
+    FIXES_APPLIED.append(label)
+    return cave_cursor + len(cave)
+
+
+# ============================================================
+# Fix 20: Mechanixx module-list stat ratings that can't discriminate.
+# TradeEngine::getModuleStatus turns some raw stats into V.Bad..V.Good by
+# comparing against a ladder of constants. Two ladders don't fit the
+# modules that actually ship:
+#   - Jump drive "Range": ladder is 240/280/300/360, but jumpdistance in
+#     modules_jumpdrive.txt runs 160..260, so the best drive in the game
+#     reads only "Bad" and most read "V. Bad".
+#   - Solar "Range": ladder is 1.4/1.6/1.8 (V. Bad tested against 0, so it
+#     can never show), but range in modules_solar.txt is 1.05..1.35, so
+#     every solar wing reads "Bad".
+# Each comparison's constant operand is repointed to an existing constant
+# already in the exe's float pool (repointing keeps the operand's own
+# relocation entry valid, so this is ASLR-safe and needs no cave, and the
+# shared constants themselves are never edited).
+# Jump drive: 250/240/200/180  ->  160 V.Bad, 190 Bad, 200-235 Medium, 255+ V.Good
+# Solar:      1.4/1.2/1.1 (V. Bad still unreachable, as before)
+# The new bands are my own choice from the shipped data, not restored
+# originals -- see the README entry.
+# ============================================================
+
+def fix_module_rating_bands(data, pe):
+    label = "Jump drive / solar wing Range rating never leaves V. Bad / Bad"
+    # (site VA of COMISS xmm0,[abs32], constant VA now, constant VA wanted)
+    sites = [
+        (0x0049441a, 0x006317b8, 0x006317a8),   # jump  360 -> 250
+        (0x0049442b, 0x006317b4, 0x006317a4),   # jump  300 -> 240
+        (0x0049443c, 0x006317b0, 0x0063179c),   # jump  280 -> 200
+        (0x0049444d, 0x006317a4, 0x00631794),   # jump  240 -> 180
+        (0x00494548, 0x006315e8, 0x00631590),   # solar 1.8 -> 1.4
+        (0x00494559, 0x006315b8, 0x0063157c),   # solar 1.6 -> 1.2
+        (0x0049456a, 0x00631590, 0x00631568),   # solar 1.4 -> 1.1
+    ]
+    offs = []
+    for va, old, _ in sites:
+        expected = bytes([0x0F, 0x2F, 0x05]) + struct.pack("<I", old)
+        off = verify_site(data, pe, va, expected, label)
+        if off is None:
+            FIXES_SKIPPED.append(label)
+            return
+        offs.append(off)
+    for off, (_, _, new) in zip(offs, sites):
+        struct.pack_into("<I", data, off + 3, new)
+    print(f"  [OK] {label}")
+    FIXES_APPLIED.append(label)
+
+
+# ============================================================
+# Fix 21: two Mechanixx stat labels that say the wrong thing.
+#   - Sensor "Strength" is really sensorquality (detection sensitivity).
+#     "Strength" already means component sturdiness everywhere else (see
+#     info_engineering.txt), so relabelled "Quality" (the data's own name).
+#   - Grappling arm "Speed" shows grappletime, where a *lower* number is
+#     faster, i.e. the label is inverted. Relabelled "Grpl. Time".
+# Same byte span, plain .rdata strings read via the format argument.
+# ============================================================
+
+def fix_module_stat_labels(data, pe):
+    label = "Mechanixx sensor 'Strength' and grappler 'Speed' labels"
+    edits = [
+        (0x0060e264, b"\x607Strength  : %s\n\x00", b"\x607Quality   : %s\n\x00"),
+        (0x0060e134, b"\x607Speed     : \x60!%.0f\n\x00", b"\x607Grpl. Time: \x60!%.0f\n\x00"),
+    ]
+    offs = []
+    for va, old, new in edits:
+        assert len(old) == len(new)
+        off = verify_site(data, pe, va, old, label)
+        if off is None:
+            FIXES_SKIPPED.append(label)
+            return
+        offs.append(off)
+    for off, (_, _, new) in zip(offs, edits):
+        data[off:off + len(new)] = new
+    print(f"  [OK] {label}")
+    FIXES_APPLIED.append(label)
+
+
+# ============================================================
 # Fix 18: clicking the posters in the Ceres Mk III cabin (or the desk PC in
 # the Enceladus cabin, or the Proxima's equivalent) zooms the camera in, but
 # the scroll wheel can't zoom back out. Those are the game's only
@@ -2840,6 +2966,9 @@ def main():
     cave_cursor = fix_sheet_last_row(data, pe, ptch_va, ptch_off, cave_cursor)
     fix_decrease_drive_label(data, pe)
     fix_input_config_overflow(data, pe)
+    cave_cursor = fix_torpedo_sight_range(data, pe, ptch_va, ptch_off, cave_cursor)
+    fix_module_rating_bands(data, pe)
+    fix_module_stat_labels(data, pe)
     fix_scroll_back_cameraclick(data, pe)
     pe.close()
 

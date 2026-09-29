@@ -505,12 +505,25 @@ before:
   placeholder were wider than their columns and ran into the Key column
   or past the edge of the screen. They now read "Switch Tabs On Screen",
   "Toggle Point Defence" and "none". Saved key bindings are unaffected.
-- **Comms terminal "?" (help) and log buttons do nothing on the Ceres
-  Mk III** — the Comms Download / Sync terminal was missing the
-  `hasmenu=true` flag that the Enceladus and Proxima versions of the same
-  terminal (and every other interactive Ceres III screen) have, so the
-  game never created its help and log pages. (Mod-only fix, no exe patch
-  needed.)
+- **Civilians only notice inbound torpedoes within 100 units** *(a
+  judgement call, not a proven bug — issue #18)* — when a pirate makes
+  a demand, a civilian's chance of complying goes up if it has a torpedo
+  contact closer than 100 units. Torpedoes launched from further out
+  never registered. The radius is now 350. It is a hard-coded constant,
+  so I can't prove the developers didn't mean it; this is the one fix
+  here you may reasonably want to drop.
+- **Mechanixx jump drive / solar wing "Range" ratings** *(best-effort
+  recalibration, not a restoration)* — the rating ladders were 240–360
+  for jump drives and 1.4–1.8 for solar wings, but the modules that
+  actually ship run 160–260 and 1.05–1.35, so the best jump drive read
+  only "Bad", most read "V. Bad", and every solar wing read "Bad". The
+  ladders now sit inside the shipped range (jump drive: 180/200/240/250;
+  solar: 1.1/1.2/1.4). It's possible these were sized for modules that
+  never shipped; the numbers are my choice, not the developers'.
+- **Mechanixx stat labels** — the sensor's "Strength" (really its
+  detection quality, and "Strength" means sturdiness everywhere else) now
+  reads "Quality"; the grappling arm's "Speed" (really a time, where lower
+  is faster) now reads "Grpl. Time". Labels only; values unchanged.
 - **Scroll wheel can't zoom back out of cabin close-ups** — clicking the
   posters in the Ceres Mk III cabin (or the desk PC in the Enceladus
   cabin, or the Proxima's equivalent) zooms the camera in, but scrolling
@@ -555,6 +568,13 @@ non-commercial purposes, as long as you credit the original author
 
 ## Version history
 
+### 0.3.9
+
+- Civilians now notice torpedoes out to 350 units instead of 100 (#18).
+- Mechanixx: jump drive and solar wing Range ratings recalibrated to the
+  modules that ship; sensor "Strength" relabelled "Quality"; grappler
+  "Speed" relabelled "Grpl. Time".
+
 ### 0.3.8
 
 - Fixed a regression: the mail-terminal `DEL` command could delete
@@ -563,7 +583,6 @@ non-commercial purposes, as long as you credit the original author
 - Input Configuration texts that ran off the screen shortened (PDA
   "Switch Tabs On Current Screen", "Toggle Point Defence Laser",
   "unbound").
-- Comms terminal help/log buttons now work on the Ceres Mk III (mod).
 
 ### 0.3.7 - 2026-09-26
 
