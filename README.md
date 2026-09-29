@@ -42,12 +42,11 @@ In practice, that means:
   bug, not touched by this patch.)
 - **When a fix can't be pinned to a specific, proven original
   behavior, this README says so plainly instead of presenting a guess
-  as a restoration.** One fix below (the mail-terminal `DEL` command)
-  was already broken — it only crashed, and never actually did
-  anything — before this patch, so there was no working original
-  behavior to restore. That entry is marked as a best-effort
-  interpretation of what the surrounding code seemed to be reaching
-  for, not a confirmed restoration, so you can judge it accordingly.
+  as a restoration.** Releases 0.3.0–0.3.7 broke this rule once: they
+  made the mail-terminal `DEL` command able to delete commands on the
+  theory that the developers had meant it to. The original game never
+  did that (it only ever answers "cannot delete system file"), so 0.3.8
+  removed the feature and keeps only the crash fix.
 - **Nothing here touches economy, difficulty, or content balance.**
   Every fix corrects something that was never supposed to happen in the
   first place, not something the developers shipped on purpose but that
@@ -396,19 +395,13 @@ before:
   recomputing and re-logging their course correction up to ~125
   times/second in bursts, instead of only when their course actually
   changed. Real wasted CPU work, not just log noise.
-- **Mail/PC terminal `DEL` command crash** — typing `DEL <name>` crashed
-  the game for almost any input. Also adds the feature this crash was
-  found while chasing: `DEL` can now genuinely delete an unprotected
-  command ("Deleted.") but refuses a protected one ("cannot delete
-  system file"). Confirmed to never touch your save data — a deleted
-  command comes back automatically the next time you leave and
-  re-enter the Communications room, load a save, or restart the game.
-  This one's a bit different from the others: the functionality was
-  already broken (it just crashed instead of doing anything), so there
-  was no working original behavior to restore. I wasn't sure what the
-  developers actually intended here — the fix is my best attempt at
-  following what the surrounding code seemed to be reaching for, not a
-  restoration of something proven.
+- **Mail/PC terminal `DEL` command crash** — typing `DEL <name>` with no
+  extension (e.g. `DEL NEWS`) crashed the game, because the handler read
+  the extension part of the argument past the end of what was actually
+  typed. It now prints the game's own "cannot delete system file"
+  message. `DEL` never deletes anything, exactly as in the original
+  game. (Versions 0.3.0–0.3.7 also let `DEL` delete some commands; that
+  was a mistake, not original behavior, and was removed in 0.3.8.)
 - **Co-op scenario "Escort: Make a Break" fails to load** — a one-character
   typo in a scenario file made it silently unloadable. (Mod-only fix, no
   exe patch needed.)
@@ -507,6 +500,17 @@ before:
   visible rows, so it always stopped scrolling one row short. Also
   removes a stray space in that entry's label that made it sit one
   character to the right of the others once it was visible.
+- **Input Configuration texts run off the screen** — "Switch Tabs On
+  Current Screen" (PDA), "Toggle Point Defence Laser" and the "unbound"
+  placeholder were wider than their columns and ran into the Key column
+  or past the edge of the screen. They now read "Switch Tabs On Screen",
+  "Toggle Point Defence" and "none". Saved key bindings are unaffected.
+- **Comms terminal "?" (help) and log buttons do nothing on the Ceres
+  Mk III** — the Comms Download / Sync terminal was missing the
+  `hasmenu=true` flag that the Enceladus and Proxima versions of the same
+  terminal (and every other interactive Ceres III screen) have, so the
+  game never created its help and log pages. (Mod-only fix, no exe patch
+  needed.)
 - **Scroll wheel can't zoom back out of cabin close-ups** — clicking the
   posters in the Ceres Mk III cabin (or the desk PC in the Enceladus
   cabin, or the Proxima's equivalent) zooms the camera in, but scrolling
@@ -550,6 +554,16 @@ non-commercial purposes, as long as you credit the original author
 (Leeway). See [LICENSE](LICENSE) for the full terms.
 
 ## Version history
+
+### 0.3.8
+
+- Fixed a regression: the mail-terminal `DEL` command could delete
+  commands. The original game never let you; it now only refuses, as
+  before, and no longer crashes on a name with no extension.
+- Input Configuration texts that ran off the screen shortened (PDA
+  "Switch Tabs On Current Screen", "Toggle Point Defence Laser",
+  "unbound").
+- Comms terminal help/log buttons now work on the Ceres Mk III (mod).
 
 ### 0.3.7 - 2026-09-26
 

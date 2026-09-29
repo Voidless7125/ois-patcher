@@ -297,6 +297,18 @@ FIXES = {
         (1, "\tid=mkxladara2", "\tid=mkxladr2"),
         (1, "\tid=mkxladarat", "\tid=mkxladrt"),
     ],
+
+    # BUG-032: the Ceres III Comms Download / Sync terminal is missing
+    # `hasmenu=true`. The top bar draws its log and "?" help icons on every
+    # screen, but the game only creates the log/help pages for screens that
+    # set hasmenu, so on this one terminal both icons did nothing. The
+    # Enceladus and Proxima versions of the same terminal (and every other
+    # interactive Ceres III screen) already set it.
+    "ceres3_comms.txt": [
+        (1,
+         "tooltip=Comms Download / Sync Terminal\n    screen=c_commstate",
+         "tooltip=Comms Download / Sync Terminal\n    hasmenu=true\n    screen=c_commstate"),
+    ],
 }
 
 
