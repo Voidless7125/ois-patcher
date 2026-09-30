@@ -297,6 +297,25 @@ FIXES = {
         (1, "\tid=mkxladara2", "\tid=mkxladr2"),
         (1, "\tid=mkxladarat", "\tid=mkxladrt"),
     ],
+
+
+    # BUG-032: the Comms Download / Sync terminal is a square (192x192)
+    # screen. The game only builds its log and "?" help pages for 4:3 and
+    # 16:9 screens (the only help/log layouts that exist), so on a square
+    # screen `hasmenu=true` can never produce working pages, and the
+    # buttons are dead. The Ceres III version never set the flag; the
+    # Enceladus and Proxima versions did. Cleared on those two so the
+    # terminal is the same on all three ships.
+    "enceladus_communications.txt": [
+        (1,
+         "    hasmenu=true\n\tscreen=e_commstate",
+         "\tscreen=e_commstate"),
+    ],
+    "proxima_comms.txt": [
+        (1,
+         "    hasmenu=true\n\tscreen=c_commstate",
+         "\tscreen=c_commstate"),
+    ],
 }
 
 
