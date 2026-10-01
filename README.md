@@ -400,7 +400,8 @@ before:
   game, because the handler read the extension part of the argument past
   the end of what was actually typed. It now prints the game's own
   "cannot delete system file" message, the same as `DEL DEL.COM` always
-  did. `DEL` never deletes anything, exactly as in the original game.
+  did. `DEL` never deletes anything, exactly as in the original game. The `DIR` listing also skips emptied entries, a harmless
+  guard that has no visible effect while nothing can be deleted.
   (Versions 0.3.0–0.3.8 also let `DEL` delete some commands; that was a
   mistake, not original behavior, and was removed in 0.3.9.)
 - **Co-op scenario "Escort: Make a Break" fails to load** — a one-character
