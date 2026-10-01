@@ -297,6 +297,37 @@ FIXES = {
         (1, "\tid=mkxladara2", "\tid=mkxladr2"),
         (1, "\tid=mkxladarat", "\tid=mkxladrt"),
     ],
+
+
+    # BUG-036 (GitHub issue #25): on the Enceladus, the airlock door
+    # buttons' invisible click boxes (ColliderCube children with
+    # collider=true, which the loader positions absolutely) sit too low.
+    # The lower box stops at y=362.51 but the lower button's round plate
+    # reaches 363.31, and the upper box starts at 363.43, so the top of the
+    # lower button misses or hits the upper ("Inner") button. The boxes
+    # are already centred horizontally on the plates (x ~548.7); only y is
+    # wrong. Each box's y is moved to its button's centre (first location
+    # + the Shuttle_Button_AirlockInner.obj vertex centre 77.0894, within
+    # 0.4 of the plate centres), which puts the boundary between the two
+    # boxes at the midpoint of the gap between the plates. Sizes unchanged.
+    # The newline is included because the count/replace below are
+    # substring-based.
+    "enceladus_airlock.txt": [
+        (1, "\tlocationy=368.3\n", "\tlocationy=369.3894\n"),
+        (1, "\tlocationy=358\n", "\tlocationy=359.7894\n"),
+    ],
+    # BUG-037 (GitHub issue #26): the Enceladus's Dock Con screen puts its
+    # Undock button at x=128, 30px left of every other button on the same
+    # 256x192 screen (its own JUMP / Pay Fee buttons directly above sit at
+    # x=158, width 80) and of the Ceres/Proxima Undock button (x=158). It
+    # looks like a 158 -> 128 typo; the fix restores x=158 so it lines up
+    # with the button above it. Width and colour code are the Enceladus's own
+    # and stay unchanged.
+    "ui_enceladus.txt": [
+        (1,
+         "    button=128,170,80,`!Undock,UNDOCK,CAN_UNDOCK\n",
+         "    button=158,170,80,`!Undock,UNDOCK,CAN_UNDOCK\n"),
+    ],
 }
 
 
