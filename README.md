@@ -514,6 +514,34 @@ before:
   or Escape worked. These are the only close-ups in the game that don't
   focus a screen, and the scroll wheel only knew how to back out of
   screens. It now backs out of these too, the same way Escape does.
+- **Crash clicking a monitor right after your ship is destroyed** — when
+  your ship's Primary Hull was destroyed, clicking a monitor (or backing
+  out of one) in the moments before the game-over sequence could crash the
+  game. The code that hands the new screen to the warning display reached
+  it through your ship, which no longer exists by then. It now checks first
+  and skips that step, as the other places doing the same thing already
+  did.
+- **"Docking" and "stationary" drawn on top of each other** on the ship
+  status screen — the status line is several labels stacked in one place,
+  and the "stationary" label (speed is zero) didn't step aside while you
+  were docking, so both could show at once as garbled text. It now does.
+- **Station sounds go wrong after visiting your own ship** — after walking
+  into your ship and back onto a docked station, the game kept "listening"
+  for sounds from your ship instead of the station. On the Admin Terminal
+  this meant typing clicks went silent and the [change details] beep moved
+  around depending on where you'd been. Stepping onto a docked station now
+  updates the sound listener like every other transition does, and the
+  [change details] beep plays where you actually are. Typing clicks and the
+  confirmation beep are now both heard, every time.
+- **Enceladus airlock buttons respond slightly below where they're drawn**
+  — the invisible click areas for the Inner and Outer airlock door buttons
+  sat 1–2 units low, so pointing at the top of the lower button picked the
+  upper one. Moved up to line up with the buttons. (Mod-only fix, no exe
+  patch needed.)
+- **Enceladus "Undock" button out of place on the Dock Con screen** — a
+  one-number typo put it noticeably left of every other ship's Undock
+  button and out of line with the JUMP button above it. Moved back.
+  (Mod-only fix, no exe patch needed.)
 
 ## Limitations
 
@@ -550,6 +578,21 @@ non-commercial purposes, as long as you credit the original author
 (Leeway). See [LICENSE](LICENSE) for the full terms.
 
 ## Version history
+
+### 0.3.8 - 2026-10-01
+
+- **New fix: crash clicking a monitor right after your ship is destroyed**
+  (GitHub issue #22).
+- **New fix: "docking" and "stationary" overlapping on the ship status
+  screen** (GitHub issue #23).
+- **New fix: station sounds going wrong after visiting your own ship.** On
+  the Admin Terminal, typing clicks and the [change details] beep now both
+  play correctly, whether or not you've been back to your ship (GitHub
+  issue #21).
+- **New fix: Enceladus airlock door buttons responding below where they're
+  drawn** (GitHub issue #25).
+- **New fix: Enceladus Dock Con "Undock" button out of place** (GitHub
+  issue #26).
 
 ### 0.3.7 - 2026-09-26
 
