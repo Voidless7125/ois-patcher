@@ -42,10 +42,10 @@ In practice, that means:
   bug, not touched by this patch.)
 - **When a fix can't be pinned to a specific, proven original
   behavior, this README says so plainly instead of presenting a guess
-  as a restoration.** Releases 0.3.0–0.3.7 broke this rule once: they
+  as a restoration.** Releases 0.3.0–0.3.8 broke this rule once: they
   made the mail-terminal `DEL` command able to delete commands on the
   theory that the developers had meant it to. The original game never
-  did that (it only ever answers "cannot delete system file"), so 0.3.8
+  did that (it only ever answers "cannot delete system file"), so 0.3.9
   removed the feature and keeps only the crash fix.
 - **Nothing here touches economy, difficulty, or content balance.**
   Every fix corrects something that was never supposed to happen in the
@@ -396,12 +396,13 @@ before:
   times/second in bursts, instead of only when their course actually
   changed. Real wasted CPU work, not just log noise.
 - **Mail/PC terminal `DEL` command crash** — typing `DEL <name>` with no
-  extension (e.g. `DEL NEWS`) crashed the game, because the handler read
-  the extension part of the argument past the end of what was actually
-  typed. It now prints the game's own "cannot delete system file"
-  message. `DEL` never deletes anything, exactly as in the original
-  game. (Versions 0.3.0–0.3.7 also let `DEL` delete some commands; that
-  was a mistake, not original behavior, and was removed in 0.3.8.)
+  extension (`DEL DEL`, `DEL DIR`, `DEL VIEW`, `DEL NEWS`, ...) crashed the
+  game, because the handler read the extension part of the argument past
+  the end of what was actually typed. It now prints the game's own
+  "cannot delete system file" message, the same as `DEL DEL.COM` always
+  did. `DEL` never deletes anything, exactly as in the original game.
+  (Versions 0.3.0–0.3.8 also let `DEL` delete some commands; that was a
+  mistake, not original behavior, and was removed in 0.3.9.)
 - **Co-op scenario "Escort: Make a Break" fails to load** — a one-character
   typo in a scenario file made it silently unloadable. (Mod-only fix, no
   exe patch needed.)
@@ -500,40 +501,13 @@ before:
   visible rows, so it always stopped scrolling one row short. Also
   removes a stray space in that entry's label that made it sit one
   character to the right of the others once it was visible.
-- **Input Configuration texts run off the screen** — "Switch Tabs On
-  Current Screen" (PDA), "Toggle Point Defence Laser" and the "unbound"
-  placeholder were wider than their columns and ran into the Key column
-  or past the edge of the screen. They now read "Switch Tabs On Screen",
-  "Toggle Point Defence" and "none". Saved key bindings are unaffected.
-- **Civilians only notice inbound torpedoes within 100 units** *(a
-  judgement call, not a proven bug — issue #18)* — when a pirate makes
-  a demand, a civilian's chance of complying goes up if it has a torpedo
-  contact closer than 100 units. Torpedoes launched from further out
-  never registered. The radius is now 350. It is a hard-coded constant,
-  so I can't prove the developers didn't mean it; this is the one fix
-  here you may reasonably want to drop.
-- **Mechanixx jump drive / solar wing "Range" ratings** *(best-effort
-  recalibration, not a restoration)* — the rating ladders were 240–360
-  for jump drives and 1.4–1.8 for solar wings, but the modules that
-  actually ship run 160–260 and 1.05–1.35, so the best jump drive read
-  only "Bad", most read "V. Bad", and every solar wing read "Bad". The
-  ladders now sit inside the shipped range (jump drive: 180/200/240/250;
-  solar: 1.1/1.2/1.4). It's possible these were sized for modules that
-  never shipped; the numbers are my choice, not the developers'.
-- **Mechanixx stat labels** — the sensor's "Strength" (really its
-  detection quality, and "Strength" means sturdiness everywhere else) now
-  reads "Quality"; the grappling arm's "Speed" (really a time, where lower
-  is faster) now reads "Grpl. Time". Labels only; values unchanged.
 - **Comms terminal "?" (help) and log buttons do nothing** — the Comms
   Download / Sync terminal is a square (192×192) screen, and the game only
   has help/log pages for 4:3 and 16:9 screens, so the buttons can never
   work there on any ship. The Enceladus and Proxima versions set
   `hasmenu=true`; that is now cleared so all three ships match (Ceres III
-  never set it). (Mod-only fix.) I have not confirmed in-game that the
-  icons disappear with the flag cleared — please check.
-- **Sensors always show "Range : 0Gm" in Mechanixx** — sensors never
-  define a range (LADAR does, and is a separate module type), so the line
-  was permanently 0 and only pushed the real stats down. Removed.
+  never set it) and no dead help/log buttons are shown. (Mod-only fix, no
+  exe patch needed.)
 - **Scroll wheel can't zoom back out of cabin close-ups** — clicking the
   posters in the Ceres Mk III cabin (or the desk PC in the Enceladus
   cabin, or the Proxima's equivalent) zooms the camera in, but scrolling
@@ -541,6 +515,34 @@ before:
   or Escape worked. These are the only close-ups in the game that don't
   focus a screen, and the scroll wheel only knew how to back out of
   screens. It now backs out of these too, the same way Escape does.
+- **Crash clicking a monitor right after your ship is destroyed** — when
+  your ship's Primary Hull was destroyed, clicking a monitor (or backing
+  out of one) in the moments before the game-over sequence could crash the
+  game. The code that hands the new screen to the warning display reached
+  it through your ship, which no longer exists by then. It now checks first
+  and skips that step, as the other places doing the same thing already
+  did.
+- **"Docking" and "stationary" drawn on top of each other** on the ship
+  status screen — the status line is several labels stacked in one place,
+  and the "stationary" label (speed is zero) didn't step aside while you
+  were docking, so both could show at once as garbled text. It now does.
+- **Station sounds go wrong after visiting your own ship** — after walking
+  into your ship and back onto a docked station, the game kept "listening"
+  for sounds from your ship instead of the station. On the Admin Terminal
+  this meant typing clicks went silent and the [change details] beep moved
+  around depending on where you'd been. Stepping onto a docked station now
+  updates the sound listener like every other transition does, and the
+  [change details] beep plays where you actually are. Typing clicks and the
+  confirmation beep are now both heard, every time.
+- **Enceladus airlock buttons respond slightly below where they're drawn**
+  — the invisible click areas for the Inner and Outer airlock door buttons
+  sat 1–2 units low, so pointing at the top of the lower button picked the
+  upper one. Moved up to line up with the buttons. (Mod-only fix, no exe
+  patch needed.)
+- **Enceladus "Undock" button out of place on the Dock Con screen** — a
+  one-number typo put it noticeably left of every other ship's Undock
+  button and out of line with the JUMP button above it. Moved back.
+  (Mod-only fix, no exe patch needed.)
 
 ## Limitations
 
@@ -578,21 +580,29 @@ non-commercial purposes, as long as you credit the original author
 
 ## Version history
 
-### 0.3.8
+### 0.3.9
 
-- Comms terminal: `hasmenu` cleared on Enceladus/Proxima so all three ships match (mod).
-- Mechanixx: sensor "Range : 0Gm" line removed.
-- Civilians now notice torpedoes out to 350 units instead of 100 (#18).
-- Mechanixx: jump drive and solar wing Range ratings recalibrated to the
-  modules that ship; sensor "Strength" relabelled "Quality"; grappler
-  "Speed" relabelled "Grpl. Time".
-
-- Fixed a regression: the mail-terminal `DEL` command could delete
+- **Fixed a regression:** the mail-terminal `DEL` command could delete
   commands. The original game never let you; it now only refuses, as
-  before, and no longer crashes on a name with no extension.
-- Input Configuration texts that ran off the screen shortened (PDA
-  "Switch Tabs On Current Screen", "Toggle Point Defence Laser",
-  "unbound").
+  before, and no longer crashes on a name with no extension (`DEL DEL`,
+  `DEL DIR`, `DEL VIEW`).
+- **New fix:** Comms Download / Sync terminal no longer shows dead help
+  and log buttons on the Enceladus and Proxima (mod).
+
+### 0.3.8 - 2026-10-01
+
+- **New fix: crash clicking a monitor right after your ship is destroyed**
+  (GitHub issue #22).
+- **New fix: "docking" and "stationary" overlapping on the ship status
+  screen** (GitHub issue #23).
+- **New fix: station sounds going wrong after visiting your own ship.** On
+  the Admin Terminal, typing clicks and the [change details] beep now both
+  play correctly, whether or not you've been back to your ship (GitHub
+  issue #21).
+- **New fix: Enceladus airlock door buttons responding below where they're
+  drawn** (GitHub issue #25).
+- **New fix: Enceladus Dock Con "Undock" button out of place** (GitHub
+  issue #26).
 
 ### 0.3.7 - 2026-09-26
 

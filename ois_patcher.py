@@ -83,15 +83,6 @@ Applies (all client-only, ois.exe):
     (third-party) rendering engine and crash. Rather than patch that
     engine DLL, this ignores the "open PDA" input for that instant
     instead -- pressing it again immediately after works normally.
-  - Input Configuration texts wider than their column ("Switch Tabs On
-    Current Screen", "Toggle Point Defence Laser", "unbound") shortened
-    in place so they no longer run off the screen.
-  - Civilian torpedo awareness radius raised from 100 to 350 units (#18).
-  - Mechanixx jump drive / solar wing Range rating ladders fitted to the
-    shipped modules; sensor "Strength" -> "Quality", grappler "Speed" ->
-    "Grpl. Time" labels.
-  - Sensors' constant "Range : 0Gm" line removed from the Mechanixx
-    module info.
   - Full Stop docked-state exploit: triggering Full Stop while docked
     silently undocks the ship in every system's eyes except the game's
     own dock/undock bookkeeping -- no fee, no undocking permission
@@ -160,7 +151,7 @@ SERVER_FIXES_SKIPPED = []
 # already patched" refusal means "you already ran this exact version" or
 # "an older version patched this -- restore the backup and re-run to
 # upgrade", instead of one generic message either way.
-PATCHER_VERSION = "0.3.8"
+PATCHER_VERSION = "0.3.9"
 VERSION_MARKER_PREFIX = b"OISPATCH:"
 VERSION_MARKER_SIZE = 32  # reserved bytes at the start of .ptch's raw data
 
@@ -1546,201 +1537,6 @@ def fix_decrease_drive_label(data, pe):
 
 
 # ============================================================
-# Fix 17b: three Input Configuration texts are wider than their column, so
-# they run into the Key column or off the right edge of the screen:
-# "Switch Tabs On Current Screen" (PDA list), "Toggle Point Defence Laser"
-# and the "unbound" placeholder in the Key column (~4 characters wide).
-# The column widths come from the game's own layout files and can't hold
-# them without squeezing every other row, so the texts are shortened in
-# place instead. The two labels are plain NUL-terminated .rdata strings read
-# with strlen at run time (same span, NUL padded, like the label fix above).
-# "unbound" is assigned with a hard-coded length, so its push imm8 is
-# changed to match. Keybinds are saved by key code, not label.
-# ============================================================
-
-def fix_input_config_overflow(data, pe):
-    label = "Input Configuration texts wider than their column"
-    edits = [
-        (0x00620990, b"\x60$Switch Tabs On Current Screen\x00", b"\x60$Switch Tabs On Screen\x00"),
-        (0x00620c24, b"\x60$Toggle Point Defence Laser\x00", b"\x60$Toggle Point Defence\x00"),
-        (0x00620be8, b"\x608unbound\x00", b"\x608none\x00"),
-    ]
-    LEN_SITE_VA = 0x00528987
-    expected_len_site = bytes([0x6A, 0x09, 0x68, 0xE8, 0x0B, 0x62, 0x00])  # PUSH 9 ; PUSH "`8unbound"
-
-    offs = []
-    for va, old, _ in edits:
-        off = verify_site(data, pe, va, old, label)
-        if off is None:
-            FIXES_SKIPPED.append(label)
-            return
-        offs.append(off)
-    len_off = verify_site(data, pe, LEN_SITE_VA, expected_len_site, label + " (length)")
-    if len_off is None:
-        FIXES_SKIPPED.append(label)
-        return
-
-    for off, (_, old, new) in zip(offs, edits):
-        data[off:off + len(old)] = new + b"\x00" * (len(old) - len(new))
-    data[len_off + 1] = len(b"\x608none")
-    print(f"  [OK] {label}")
-    FIXES_APPLIED.append(label)
-
-
-# ============================================================
-# Fix 19 (issue #18): a civilian only counts an inbound torpedo when the
-# torpedo is within 100 units of it. ShipBehaviour::respondToPirateDemand
-# walks the civilian's own sensor contacts, and for every torpedo contact
-# (object type 4) compares its presumed distance from the civilian against
-# 100.0; a torpedo inside that radius makes the pirate demand ~1.5x more
-# likely to be obeyed. Anything the civilian can see but that is further
-# away is ignored, so torpedoes launched from beyond 100 never register.
-# Raised to 350.0 (per the issue). The 100.0 comes from a shared constant
-# pool (158 other users), so it must not be edited in place: this
-# replaces only this one load, with a 350.0 immediate, in a cave.
-# This is a judgement call about intended range, not a proven crash/typo
-# fix -- see the README entry.
-# ============================================================
-
-def fix_torpedo_sight_range(data, pe, ptch_va, ptch_off, cave_cursor):
-    label = "Civilians only notice torpedoes within 100 units (raised to 350)"
-    SITE_VA, RESUME_VA = 0x00504d72, 0x00504d7a
-    expected = bytes([0xF3, 0x0F, 0x10, 0x05, 0x64, 0x17, 0x63, 0x00])  # MOVSS XMM0,[100.0f]
-    off = verify_site(data, pe, SITE_VA, expected, label)
-    if off is None:
-        FIXES_SKIPPED.append(label)
-        return cave_cursor
-
-    neutralize_relocations(data, pe, SITE_VA, len(expected), label)
-
-    cave = bytearray()
-    cave += bytes([0xB8]) + struct.pack("<f", 350.0)     # MOV EAX,350.0f (EAX is dead here)
-    cave += bytes([0x66, 0x0F, 0x6E, 0xC0])              # MOVD XMM0,EAX
-    jmp_pos = len(cave)
-    cave += bytes([0xE9, 0, 0, 0, 0])
-    cave_va = ptch_va + cave_cursor
-    struct.pack_into("<i", cave, jmp_pos + 1, RESUME_VA - (cave_va + jmp_pos + 5))
-    data[ptch_off + cave_cursor: ptch_off + cave_cursor + len(cave)] = cave
-
-    redirect = bytearray([0xE9, 0, 0, 0, 0])
-    struct.pack_into("<i", redirect, 1, cave_va - (SITE_VA + 5))
-    redirect += b"\x90" * (len(expected) - len(redirect))
-    data[off:off + len(expected)] = redirect
-
-    print(f"  [OK] {label}")
-    FIXES_APPLIED.append(label)
-    return cave_cursor + len(cave)
-
-
-# ============================================================
-# Fix 20: Mechanixx module-list stat ratings that can't discriminate.
-# TradeEngine::getModuleStatus turns some raw stats into V.Bad..V.Good by
-# comparing against a ladder of constants. Two ladders don't fit the
-# modules that actually ship:
-#   - Jump drive "Range": ladder is 240/280/300/360, but jumpdistance in
-#     modules_jumpdrive.txt runs 160..260, so the best drive in the game
-#     reads only "Bad" and most read "V. Bad".
-#   - Solar "Range": ladder is 1.4/1.6/1.8 (V. Bad tested against 0, so it
-#     can never show), but range in modules_solar.txt is 1.05..1.35, so
-#     every solar wing reads "Bad".
-# Each comparison's constant operand is repointed to an existing constant
-# already in the exe's float pool (repointing keeps the operand's own
-# relocation entry valid, so this is ASLR-safe and needs no cave, and the
-# shared constants themselves are never edited).
-# Jump drive: 250/240/200/180  ->  160 V.Bad, 190 Bad, 200-235 Medium, 255+ V.Good
-# Solar:      1.4/1.2/1.1 (V. Bad still unreachable, as before)
-# The new bands are my own choice from the shipped data, not restored
-# originals -- see the README entry.
-# ============================================================
-
-def fix_module_rating_bands(data, pe):
-    label = "Jump drive / solar wing Range rating never leaves V. Bad / Bad"
-    # (site VA of COMISS xmm0,[abs32], constant VA now, constant VA wanted)
-    sites = [
-        (0x0049441a, 0x006317b8, 0x006317a8),   # jump  360 -> 250
-        (0x0049442b, 0x006317b4, 0x006317a4),   # jump  300 -> 240
-        (0x0049443c, 0x006317b0, 0x0063179c),   # jump  280 -> 200
-        (0x0049444d, 0x006317a4, 0x00631794),   # jump  240 -> 180
-        (0x00494548, 0x006315e8, 0x00631590),   # solar 1.8 -> 1.4
-        (0x00494559, 0x006315b8, 0x0063157c),   # solar 1.6 -> 1.2
-        (0x0049456a, 0x00631590, 0x00631568),   # solar 1.4 -> 1.1
-    ]
-    offs = []
-    for va, old, _ in sites:
-        expected = bytes([0x0F, 0x2F, 0x05]) + struct.pack("<I", old)
-        off = verify_site(data, pe, va, expected, label)
-        if off is None:
-            FIXES_SKIPPED.append(label)
-            return
-        offs.append(off)
-    for off, (_, _, new) in zip(offs, sites):
-        struct.pack_into("<I", data, off + 3, new)
-    print(f"  [OK] {label}")
-    FIXES_APPLIED.append(label)
-
-
-# ============================================================
-# Fix 21: two Mechanixx stat labels that say the wrong thing.
-#   - Sensor "Strength" is really sensorquality (detection sensitivity).
-#     "Strength" already means component sturdiness everywhere else (see
-#     info_engineering.txt), so relabelled "Quality" (the data's own name).
-#   - Grappling arm "Speed" shows grappletime, where a *lower* number is
-#     faster, i.e. the label is inverted. Relabelled "Grpl. Time".
-# Same byte span, plain .rdata strings read via the format argument.
-# ============================================================
-
-def fix_module_stat_labels(data, pe):
-    label = "Mechanixx sensor 'Strength' and grappler 'Speed' labels"
-    edits = [
-        (0x0060e264, b"\x607Strength  : %s\n\x00", b"\x607Quality   : %s\n\x00"),
-        (0x0060e134, b"\x607Speed     : \x60!%.0f\n\x00", b"\x607Grpl. Time: \x60!%.0f\n\x00"),
-    ]
-    offs = []
-    for va, old, new in edits:
-        assert len(old) == len(new)
-        off = verify_site(data, pe, va, old, label)
-        if off is None:
-            FIXES_SKIPPED.append(label)
-            return
-        offs.append(off)
-    for off, (_, _, new) in zip(offs, edits):
-        data[off:off + len(new)] = new
-    print(f"  [OK] {label}")
-    FIXES_APPLIED.append(label)
-
-
-# ============================================================
-# Fix 22: every sensor in Mechanixx shows "Range : 0Gm". The line prints
-# the module's range slot, but sensors never define one (LADAR does, via
-# ladarrange, and is a separate module type with its own display code), so
-# it is always 0 and only pushes the real stats down. The sensor block's
-# format string operand is repointed to an existing NUL terminator (an
-# empty format prints nothing); keeping the operand a plain absolute
-# address means its relocation entry stays valid, so this is ASLR-safe.
-# The hacker module's own Range line (an earlier call) is untouched.
-# ============================================================
-
-def fix_sensor_range_line(data, pe):
-    label = "Sensors always show 'Range : 0Gm' in Mechanixx"
-    SITE_VA = 0x00493cbc                                     # PUSH imm32 "`7Range     : `!%.0fGm\n"
-    RANGE_FMT_VA = 0x0060e0f4
-    range_fmt = b"\x607Range     : \x60!%.0fGm\n\x00"
-    EMPTY_VA = RANGE_FMT_VA + len(range_fmt) - 1             # that string's own NUL terminator
-    expected = bytes([0x68]) + struct.pack("<I", RANGE_FMT_VA)
-    if verify_site(data, pe, RANGE_FMT_VA, range_fmt, label + " (format)") is None:
-        FIXES_SKIPPED.append(label)
-        return
-    empty_off = verify_site(data, pe, EMPTY_VA, b"\x00", label + " (empty string)")
-    off = verify_site(data, pe, SITE_VA, expected, label)
-    if off is None or empty_off is None:
-        FIXES_SKIPPED.append(label)
-        return
-    struct.pack_into("<I", data, off + 1, EMPTY_VA)
-    print(f"  [OK] {label}")
-    FIXES_APPLIED.append(label)
-
-
-# ============================================================
 # Fix 18: clicking the posters in the Ceres Mk III cabin (or the desk PC in
 # the Enceladus cabin, or the Proxima's equivalent) zooms the camera in, but
 # the scroll wheel can't zoom back out. Those are the game's only
@@ -1813,6 +1609,233 @@ def fix_scroll_back_cameraclick(data, pe):
 
     print(f"  [OK] {label}")
     FIXES_APPLIED.append(label)
+
+
+# ============================================================
+# Fix 19: clicking a monitor right after the player ship's Primary Hull is
+# destroyed crashes the game. PresentationInterface::moveToCameraPos hands
+# the newly focused screen to a LogSystem reached through
+# *(g_gameData+0xd0), which is null once the ship is destroyed; two of its
+# four hand-off sites never null-checked it (0x00532987 "zoom to camera N",
+# the reported crash; 0x00532a45 "back out to a default screen", the same
+# crash on right-click/Escape). Fix: JECXZ to the shared continuation at
+# both, exactly what the two already-guarded sites do. Both rewritten in
+# place; at site 2 a reloc'd g_gameData reload becomes PUSH/POP EDX and its
+# reloc entry is neutralized. See BUGS.md BUG-034 (GitHub issue #22).
+# ============================================================
+
+def fix_movecamera_null_ship(data, pe):
+    label = "Crash clicking a monitor after the ship is destroyed"
+    RENDER_WARNING_VA = 0x00528e60
+    CONTINUE_VA = 0x00532a7f
+
+    S1 = 0x00532987
+    exp1 = bytes.fromhex("8B89D0000000" "8BB124020000" "837E1000" "894658" "7407" "8BCE"
+                         "E8BD64FFFF" "C7465800000000" "E9D0000000")
+    S2 = 0x00532a45
+    S2_END = 0x00532a67
+    exp2 = bytes.fromhex("8B8AD0000000" "8BB124020000" "837E1000" "894658" "740D" "8BCE"
+                         "E8FF63FFFF" "8B1504D76500")
+    off1 = verify_site(data, pe, S1, exp1, label + " (zoom in)")
+    off2 = verify_site(data, pe, S2, exp2, label + " (back out)")
+    if off1 is None or off2 is None:
+        FIXES_SKIPPED.append(label)
+        return
+    neutralize_relocations(data, pe, S1, len(exp1), label + " (zoom in)")
+    neutralize_relocations(data, pe, S2, len(exp2), label + " (back out)")   # the MOV EDX,[g_gameData] reload
+
+    def assemble(site_va, parts):
+        out, labels, fix8, fix32 = bytearray(), {}, [], []
+        for p in parts:
+            if isinstance(p, (bytes, bytearray)):
+                out += p
+            elif p[0] == "label":
+                labels[p[1]] = site_va + len(out)
+            elif p[0] == "j8":
+                out += bytes([p[1], 0]); fix8.append((len(out) - 1, p[2]))
+            elif p[0] in ("call", "jmp"):
+                out += (b"\xE8" if p[0] == "call" else b"\xE9") + b"\x00\x00\x00\x00"
+                fix32.append((len(out) - 4, p[1]))
+        for pos, t in fix8:
+            t = labels[t] if isinstance(t, str) else t
+            out[pos] = (t - (site_va + pos + 1)) & 0xFF
+        for pos, t in fix32:
+            struct.pack_into("<i", out, pos, t - (site_va + pos + 4))
+        return out
+
+    new1 = assemble(S1, [
+        bytes.fromhex("8B89D0000000"),        # MOV ECX,[ECX+0xd0]
+        ("j8", 0xE3, "end"),                  # JECXZ end            (ship gone: skip the hand-off)
+        bytes.fromhex("8BB124020000"),        # MOV ESI,[ECX+0x224]
+        bytes.fromhex("837E1000"),            # CMP dword [ESI+0x10],0
+        bytes.fromhex("894658"),              # MOV [ESI+0x58],EAX
+        ("j8", 0x74, "clear"),                # JZ  clear
+        bytes.fromhex("8BCE"),                # MOV ECX,ESI
+        ("call", RENDER_WARNING_VA),          # CALL LogSystem::renderWarning
+        ("label", "clear"),
+        bytes.fromhex("83665800"),            # AND dword [ESI+0x58],0  (was a 7-byte MOV ...,0)
+        ("label", "end"),
+        ("jmp", CONTINUE_VA),                 # JMP 0x00532a7f
+        b"\x90",                              # pad (unreachable)
+    ])
+    new2 = assemble(S2, [
+        bytes.fromhex("8B8AD0000000"),        # MOV ECX,[EDX+0xd0]
+        ("j8", 0xE3, CONTINUE_VA),            # JECXZ 0x00532a7f     (also skips the second use)
+        bytes.fromhex("8BB124020000"),        # MOV ESI,[ECX+0x224]
+        bytes.fromhex("837E1000"),            # CMP dword [ESI+0x10],0
+        bytes.fromhex("894658"),              # MOV [ESI+0x58],EAX
+        ("j8", 0x74, S2_END),                 # JZ  0x00532a67
+        b"\x52",                              # PUSH EDX             (g_gameData, loaded at 0x00532a39)
+        bytes.fromhex("8BCE"),                # MOV ECX,ESI
+        ("call", RENDER_WARNING_VA),          # CALL LogSystem::renderWarning
+        b"\x5A",                              # POP EDX              (replaces the reloc'd reload)
+        b"\x90\x90",                          # pad to 0x00532a67
+    ])
+    assert len(new1) == len(exp1) and len(new2) == len(exp2)
+    data[off1:off1 + len(exp1)] = new1
+    data[off2:off2 + len(exp2)] = new2
+    print(f"  [OK] {label}")
+    FIXES_APPLIED.append(label)
+
+
+# ============================================================
+# Fix 20: while docking, the ship-status monitor draws "docking" and
+# "stationary" on top of each other. The Status: line is five mutually
+# exclusive labels; ShipData::checkIsStationary (speed == 0) stepped aside
+# for docked and in-orbit but not for the docking phase. Fix: rewrite its
+# 25-byte dock/orbit test in place so it also steps aside while docking
+# (Ship+0xf8 == 1); undocking keeps its old behaviour. See BUGS.md BUG-035
+# (GitHub issue #23).
+# ============================================================
+
+def fix_stationary_while_docking(data, pe):
+    label = "\"Docking\" and \"stationary\" overlap on the ship status screen"
+    SITE_VA, FALSE_VA, CONT_VA = 0x004cf671, 0x004cf6a0, 0x004cf68a
+    expected = bytes.fromhex("8B81D4000000" "83F803" "7509" "83B9F800000002" "741B" "83F802" "7416")
+    off = verify_site(data, pe, SITE_VA, expected, label)
+    if off is None:
+        FIXES_SKIPPED.append(label)
+        return
+    neutralize_relocations(data, pe, SITE_VA, len(expected), label)
+    new = bytearray()
+    fix8 = []
+    def emit(b): new.extend(b)
+    def j8(op, t): emit(bytes([op, 0])); fix8.append((len(new) - 1, t))
+    emit(bytes.fromhex("8B81D4000000"))   # MOV EAX,[ECX+0xd4]   travel state
+    emit(bytes.fromhex("3C02"))           # CMP AL,2             in orbit
+    j8(0x74, FALSE_VA)                    # JZ  false
+    emit(bytes.fromhex("3C03"))           # CMP AL,3             at a dock?
+    j8(0x75, CONT_VA)                     # JNZ cont             no -> check speed
+    emit(bytes.fromhex("8B91F8000000"))   # MOV EDX,[ECX+0xf8]   docking phase
+    emit(bytes.fromhex("4A"))             # DEC EDX
+    emit(bytes.fromhex("D1EA"))           # SHR EDX,1            ZF iff phase in {1,2}
+    j8(0x74, FALSE_VA)                    # JZ  false            docking or docked
+    for pos, t in fix8:
+        new[pos] = (t - (SITE_VA + pos + 1)) & 0xFF
+    assert len(new) == len(expected)
+    data[off:off + len(expected)] = new
+    print(f"  [OK] {label}")
+    FIXES_APPLIED.append(label)
+
+
+# ============================================================
+# Fix 21: after visiting your own ship, sounds on a station go wrong (on
+# the Admin Terminal, typing clicks go silent and the [change details] beep
+# starts playing). Ship-attached sounds only play for the sound engine's
+# "listening" ship; every vessel transition re-points it via
+# PresentationInterface::configureSoundForShip except boardDockedVessel
+# (own ship -> docked station), which left it on your own ship. Fix: call
+# configureSoundForShip in boardDockedVessel right after currentlyBoardedShip
+# is set, mirroring leaveDockedVessel. See BUGS.md BUG-033 (GitHub issue #21).
+# ============================================================
+
+def fix_board_docked_sound(data, pe, ptch_va, ptch_off, cave_cursor):
+    label = "Station sounds routed to your own ship after visiting it"
+    SITE_VA, RESUME_VA = 0x0052f470, 0x0052f478
+    CONFIGURE_SOUND_VA = 0x0052e030
+    expected = bytes.fromhex("8BCF" "8B8678010000")   # MOV ECX,EDI / MOV EAX,[ESI+0x178]
+    off = verify_site(data, pe, SITE_VA, expected, label)
+    if off is None:
+        FIXES_SKIPPED.append(label)
+        return cave_cursor
+    neutralize_relocations(data, pe, SITE_VA, len(expected), label)
+
+    cave = bytearray()
+    fixups = []
+    def emit(b): cave.extend(b)
+    def rel32(prefix, t): emit(prefix + b"\x00\x00\x00\x00"); fixups.append((len(cave) - 4, t))
+    emit(bytes.fromhex("8BCF"))               # MOV ECX,EDI          (this)
+    rel32(b"\xE8", CONFIGURE_SOUND_VA)        # CALL configureSoundForShip
+    emit(expected)                            # replay MOV ECX,EDI / MOV EAX,[ESI+0x178]
+    rel32(b"\xE9", RESUME_VA)                 # JMP back (PUSH [EAX+0x2ac] / CALL showRoom)
+
+    cave_va = ptch_va + cave_cursor
+    for pos, t in fixups:
+        struct.pack_into("<i", cave, pos, t - (cave_va + pos + 4))
+    data[ptch_off + cave_cursor: ptch_off + cave_cursor + len(cave)] = cave
+    cave_cursor += len(cave)
+
+    redirect = bytearray(b"\xE9") + struct.pack("<i", cave_va - (SITE_VA + 5)) + b"\x90" * (len(expected) - 5)
+    data[off:off + len(expected)] = redirect
+    print(f"  [OK] {label}")
+    FIXES_APPLIED.append(label)
+    return cave_cursor
+
+
+# ============================================================
+# Fix 22: the Admin Terminal's [change details] confirmation beep (played by
+# ShipInterface::doChangeDetails) is attached to your own ship, so with Fix
+# 21 in place it would never be heard while you stand on the station. Fix:
+# attach its two sounds to ShipData::currentlyBoardedShip when set (the
+# vessel you're aboard), falling back to the original ship. Singleplayer
+# only by construction (networked clients send this command to
+# ois_server.exe). A shared PIC helper; no new relocs. See BUGS.md BUG-033.
+# ============================================================
+
+def fix_changedetails_beep(data, pe, ptch_va, ptch_off, cave_cursor):
+    label = "Admin Terminal [change details] beep not audible on a station"
+    GET_INSTANCE_VA = 0x004031d0
+    PLAY_SOUND_SHIP_VA = 0x00559ca0
+    BOARDED_VA = 0x0065d50c          # ShipData::currentlyBoardedShip
+    SITES = [(0x004e5054, 0x2d), (0x004e5065, 0x2b)]
+    offs = []
+    for site, snd in SITES:
+        o = va_to_offset(pe, site)
+        ok = (o is not None and data[o - 2:o] == bytes([0x6A, snd]) and data[o] == 0x56 and data[o + 1] == 0xE8
+              and site + 6 + struct.unpack_from("<i", data, o + 2)[0] == GET_INSTANCE_VA
+              and data[o + 6:o + 8] == b"\x8b\xc8" and data[o + 8] == 0xE8
+              and site + 13 + struct.unpack_from("<i", data, o + 9)[0] == PLAY_SOUND_SHIP_VA)
+        if not ok:
+            print(f"  [SKIP] {label}: unexpected bytes at VA {hex(site)}")
+            FIXES_SKIPPED.append(label)
+            return cave_cursor
+        offs.append(o)
+    for site, _ in SITES:
+        neutralize_relocations(data, pe, site, 6, label)
+
+    helper_va = ptch_va + cave_cursor
+    h = bytearray()
+    h += b"\x5A"                                   # POP EDX              (our return address)
+    h += b"\xE8\x00\x00\x00\x00"                   # CALL $+5
+    anchor = helper_va + len(h)
+    h += b"\x58"                                   # POP EAX              (PIC anchor)
+    h += b"\x8B\x80" + struct.pack("<i", BOARDED_VA - anchor)   # MOV EAX,[EAX+delta] = currentlyBoardedShip
+    h += b"\x85\xC0"                               # TEST EAX,EAX
+    h += b"\x75\x02"                               # JNZ +2
+    h += b"\x8B\xC6"                               # MOV EAX,ESI          (fallback: original ship)
+    h += b"\x50"                                   # PUSH EAX             (ship arg)
+    h += b"\x52"                                   # PUSH EDX             (return address)
+    jpos = len(h)
+    h += b"\xE9\x00\x00\x00\x00"                   # JMP getInstance      (tail call)
+    struct.pack_into("<i", h, jpos + 1, GET_INSTANCE_VA - (helper_va + jpos + 5))
+    data[ptch_off + cave_cursor: ptch_off + cave_cursor + len(h)] = h
+    cave_cursor += len(h)
+
+    for (site, _), o in zip(SITES, offs):
+        data[o:o + 6] = b"\xE8" + struct.pack("<i", helper_va - (site + 5)) + b"\x90"
+    print(f"  [OK] {label}")
+    FIXES_APPLIED.append(label)
+    return cave_cursor
 
 
 # ============================================================
@@ -2998,12 +3021,11 @@ def main():
     cave_cursor = fix_showlist_backup_clobber(data, pe, ptch_va, ptch_off, cave_cursor)
     cave_cursor = fix_sheet_last_row(data, pe, ptch_va, ptch_off, cave_cursor)
     fix_decrease_drive_label(data, pe)
-    fix_input_config_overflow(data, pe)
-    cave_cursor = fix_torpedo_sight_range(data, pe, ptch_va, ptch_off, cave_cursor)
-    fix_module_rating_bands(data, pe)
-    fix_module_stat_labels(data, pe)
-    fix_sensor_range_line(data, pe)
     fix_scroll_back_cameraclick(data, pe)
+    fix_movecamera_null_ship(data, pe)
+    fix_stationary_while_docking(data, pe)
+    cave_cursor = fix_board_docked_sound(data, pe, ptch_va, ptch_off, cave_cursor)
+    cave_cursor = fix_changedetails_beep(data, pe, ptch_va, ptch_off, cave_cursor)
     pe.close()
 
     if cave_cursor > ptch_size:
