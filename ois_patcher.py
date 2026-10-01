@@ -827,7 +827,7 @@ def _emit_vector_count_gt1_check(emit, ebp_end=0xD8, ebp_begin=0xD4):
 
 
 def fix_del_command(data, pe, ptch_va, ptch_off, cave_cursor):
-    label = "Mail terminal DEL crash on a name with no extension"
+    label = "Mail terminal DEL crash on a name with no extension (+ DIR listing guard)"
 
     # --- site A: inside the match loop, on a name match ---
     SITE_A_VA, RESUME_A_VA, PROTECTED_MSG_VA = 0x00548f34, 0x00548f3a, 0x00548ff5
@@ -900,6 +900,58 @@ def fix_del_command(data, pe, ptch_va, ptch_off, cave_cursor):
     redirect2 += b"\x90" * (6 - len(redirect2))
     data[off_b:off_b + 6] = redirect2
     cave_cursor += len(cave2)
+
+    # --- cmd_DIR listing loop skips zero-length (emptied) entries ---
+    PATCH_SITE_VA3, RESUME_VA3, EXIT_VA3 = 0x00548530, 0x00548535, 0x0054859a
+    expected3 = bytes([0x83, 0x7C, 0x33, 0x14, 0x10])
+    off3 = verify_site(data, pe, PATCH_SITE_VA3, expected3, label + " (DIR listing)")
+    if off3 is None:
+        FIXES_SKIPPED.append(label)
+        return cave_cursor
+
+    cave3 = bytearray()
+    def emit3(b): cave3.extend(b)
+
+    emit3(bytes([0x83, 0x7C, 0x33, 0x10, 0x00]))
+    jnz_pos3 = len(cave3)
+    emit3(bytes([0x0F, 0x85, 0, 0, 0, 0]))
+    emit3(bytes([0x8B, 0x4D, 0xEC]))
+    emit3(bytes([0xFF, 0x45, 0xF0]))
+    emit3(bytes([0x83, 0xC3, 0x78]))
+    emit3(bytes([0x8B, 0x79, 0x48]))
+    emit3(bytes([0x8B, 0x71, 0x44]))
+    emit3(bytes([0xB8, 0x89, 0x88, 0x88, 0x88]))
+    emit3(bytes([0x8B, 0xCF]))
+    emit3(bytes([0x2B, 0xCE]))
+    emit3(bytes([0xF7, 0xE9]))
+    emit3(bytes([0x03, 0xD1]))
+    emit3(bytes([0xC1, 0xFA, 0x06]))
+    emit3(bytes([0x8B, 0xC2]))
+    emit3(bytes([0xC1, 0xE8, 0x1F]))
+    emit3(bytes([0x03, 0xC2]))
+    emit3(bytes([0x39, 0x45, 0xF0]))
+    jc_pos3 = len(cave3)
+    emit3(bytes([0x0F, 0x82, 0, 0, 0, 0]))
+    jmp_exit_pos3 = len(cave3)
+    emit3(bytes([0xE9, 0, 0, 0, 0]))
+    replay_pos3 = len(cave3)
+    emit3(bytes([0x83, 0x7C, 0x33, 0x14, 0x10]))
+    jmp_resume_pos3 = len(cave3)
+    emit3(bytes([0xE9, 0, 0, 0, 0]))
+
+    cave_va3 = ptch_va + cave_cursor
+    struct.pack_into("<i", cave3, jnz_pos3 + 2, replay_pos3 - (jnz_pos3 + 6))
+    struct.pack_into("<i", cave3, jc_pos3 + 2, PATCH_SITE_VA3 - (cave_va3 + jc_pos3 + 6))
+    struct.pack_into("<i", cave3, jmp_exit_pos3 + 1, EXIT_VA3 - (cave_va3 + jmp_exit_pos3 + 5))
+    struct.pack_into("<i", cave3, jmp_resume_pos3 + 1, RESUME_VA3 - (cave_va3 + jmp_resume_pos3 + 5))
+
+    data[ptch_off + cave_cursor: ptch_off + cave_cursor + len(cave3)] = cave3
+
+    redirect3 = bytearray([0xE9, 0, 0, 0, 0])
+    struct.pack_into("<i", redirect3, 1, cave_va3 - (PATCH_SITE_VA3 + 5))
+    data[off3:off3 + 5] = redirect3
+
+    cave_cursor += len(cave3)
 
     print(f"  [OK] {label}")
     FIXES_APPLIED.append(label)
