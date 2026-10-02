@@ -39,7 +39,7 @@ is actually in it, and if two installs are found the choice is put to
 the user rather than guessed at.
 
 Expects apply_data_fixes.py and a "mod" folder containing "oisbugfix"
-(just modinfo.txt) next to this script -- ship all of them together (text_fixes.py is optional) when
+(just modinfo.txt) next to this script -- ship all of them together (text_fixes.py carries the text corrections) when
 distributing this patcher. Skips mod installation with a warning,
 rather than failing, if either is missing.
 
