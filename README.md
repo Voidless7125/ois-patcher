@@ -524,6 +524,21 @@ before:
   deliberately garbled messages and invented names are left alone, and no
   person-name spellings are changed. (Mod-only fix, no exe patch needed.
   Review notes: `tools/textcheck/REPORT.md`.)
+- **Buying a module never sends its welcome email** — every module's data
+  file has an `email=` text ("Congratulations on purchasing your Kruger
+  Interstellar DRAK Grappling Arm! ..."; 71 of them), and the game loads it,
+  but no code ever reads it, so buying a module at Mechanixx never delivers
+  it. The purchase now queues that email through the game's own custom-email
+  call (the one used for passenger and smuggler-reward mail), so it arrives
+  on your next comms sync like those do. It is addressed from the module's
+  own manufacturer with the subject "Your new <module name>", and modules
+  with no email text are skipped. Most categories shared one email text
+  across every model, so the first sentence of those 56 (countermeasures,
+  hacking, jump drives, point defence, solar wings, weapons) now says which
+  maker and model it is about, the way the grapple-arm and battery emails
+  already did. Only the buying path is covered: modules a ship starts with
+  or gets from a broker still send nothing. Not confirmed in the running
+  game; I could only test the generated code in a CPU emulator.
 - **Scroll wheel can't zoom back out of cabin close-ups** — clicking the
   posters in the Ceres Mk III cabin (or the desk PC in the Enceladus
   cabin, or the Proxima's equivalent) zooms the camera in, but scrolling
@@ -598,6 +613,7 @@ non-commercial purposes, as long as you credit the original author
 
 ### 0.3.9
 
+- **New fix:** buying a module now delivers its welcome email (queued for your next comms sync), and the shared category emails name their own maker and model (exe + mod).
 - **New fix:** about 450 spelling and grammar corrections across roughly 320 text files, including a misspelled `$amount` token that showed the player "$amonut" (mod).
 - **Fixed a regression:** the mail-terminal `DEL` command could delete
   commands. The original game never let you; it now only refuses, as

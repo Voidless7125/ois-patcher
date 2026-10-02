@@ -362,6 +362,48 @@ for _name, _entries in TEXT_FIXES.items():
     FIXES.setdefault(_name, []).extend(_entries)
 
 
+# Module purchase emails (see ois_patcher.fix_module_purchase_email). Most categories
+# share one email text across every model ("Thank you for purchasing this weapons
+# module!"), so it never says which model or maker it is about. The grapple arms
+# and batteries already open with "...your <maker> <model> <type>"; this gives the
+# shared ones the same opening, built at install time from the player's own
+# modules_*.txt (nothing from the game is bundled). Only the first sentence changes.
+import re
+
+_GENERIC_EMAIL_OPENING = re.compile(
+    r"^(Thank you for purchasing|Congratulations on purchasing) this ([^!.^]+?)([!.])")
+
+
+def personalise_module_emails(assets_dir, mod_dst_dir):
+    """Returns the number of module emails rewritten."""
+    assets_dir, mod_dst_dir = Path(assets_dir), Path(mod_dst_dir)
+    changed = 0
+    for src in sorted(assets_dir.glob("modules_*.txt")):
+        dst = mod_dst_dir / src.name
+        text = (dst if dst.is_file() else src).read_text(encoding="utf-8")
+        new_text, n = [], 0
+        for block in re.split(r"(?m)^(?=begin module\s*$)", text):
+            name = re.search(r"(?m)^\s*name=(.+?)\s*$", block)
+            maker = re.search(r"(?m)^\s*manufacturer=(.+?)\s*$", block)
+            if name and maker:
+                def fix(m):
+                    nonlocal n
+                    body = m.group(2)
+                    mm = _GENERIC_EMAIL_OPENING.match(body)
+                    if not mm:
+                        return m.group(0)
+                    n += 1
+                    return (m.group(1) + mm.group(1) + " your " + maker.group(1) + " "
+                            + name.group(1) + " " + mm.group(2) + mm.group(3) + body[mm.end():])
+                block = re.sub(r"(?m)^(\s*email=)(.*)$", fix, block, count=1)
+            new_text.append(block)
+        if n:
+            mod_dst_dir.mkdir(parents=True, exist_ok=True)
+            dst.write_text("".join(new_text), encoding="utf-8")
+            changed += n
+    return changed
+
+
 def apply_all(assets_dir, mod_dst_dir):
     """Reads each affected file from `assets_dir` (the user's own game
     install), applies the verified line fixes, and writes the result into
@@ -396,6 +438,10 @@ def apply_all(assets_dir, mod_dst_dir):
         (mod_dst_dir / filename).write_text(content, encoding="utf-8")
         applied += 1
         print(f"  [OK] {filename}")
+
+    emails = personalise_module_emails(assets_dir, mod_dst_dir)
+    if emails:
+        print(f"  [OK] {emails} module purchase emails now name their own model and maker")
 
     return applied, skipped
 

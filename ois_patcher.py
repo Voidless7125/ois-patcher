@@ -1589,6 +1589,114 @@ def fix_decrease_drive_label(data, pe):
 
 
 # ============================================================
+# Fix 19: module purchase emails are never sent.
+# Every module data file can carry an `email=` text ("Congratulations on
+# purchasing your Kruger Interstellar DRAK Grappling Arm! ..."; 71 of them
+# ship in the game). DataLoader::createModule stores it in the module class
+# (ShipModuleClass+0x68), but nothing in the game ever reads it, so buying
+# a module at Mechanixx never delivers it. This hooks
+# TradeEngine::performModuleTransaction right after the module is installed
+# and queues the email through the game's own EmailManager::addCustomEmail
+# (the same call used for passenger and smuggler-reward mail, which arrives
+# on the next comms sync), addressed from the module's own manufacturer
+# (ShipModuleClass+0x38) with the subject "Your new <module name>"
+# (ShipModuleClass+8) and the module's own email text as the body. Modules
+# with no email text are skipped. Nothing here references an absolute
+# address, so it is ASLR-safe: only relative calls to functions and a
+# position-independent format string.
+# ============================================================
+
+def fix_module_purchase_email(data, pe, ptch_va, ptch_off, cave_cursor):
+    label = "Module purchase emails are never sent"
+    SITE_VA, RESUME_VA = 0x00495ad8, 0x00495add
+    COPY_STR_VA, FORMAT_VA = 0x00402720, 0x00593b30       # std::string copy ctor / strUsingArgs
+    GET_EMAIL_MGR_VA, ADD_CUSTOM_EMAIL_VA = 0x004129d0, 0x0043acb0
+    expected = bytes([0x8B, 0x03, 0x83, 0xEC, 0x18])      # MOV EAX,[EBX] ; SUB ESP,0x18
+    off = verify_site(data, pe, SITE_VA, expected, label)
+    if off is None:
+        FIXES_SKIPPED.append(label)
+        return cave_cursor
+    # the functions we call must be the ones we think they are
+    for va, sig, what in (
+        (COPY_STR_VA, None, "string copy ctor"),
+        (FORMAT_VA, bytes([0x55, 0x8B, 0xEC, 0xB8, 0x0C, 0x40, 0x00, 0x00]), "strUsingArgs"),
+        (GET_EMAIL_MGR_VA, bytes([0x55, 0x8B, 0xEC, 0x51]), "EmailManager::getInstance"),
+        (ADD_CUSTOM_EMAIL_VA, bytes([0x55, 0x8B, 0xEC, 0x6A, 0xFF, 0x68, 0x18, 0x50, 0x5B, 0x00]), "addCustomEmail"),
+    ):
+        if sig is not None and verify_site(data, pe, va, sig, label + f" ({what})") is None:
+            FIXES_SKIPPED.append(label)
+            return cave_cursor
+
+    cave = bytearray()
+    calls = []                                   # (position of rel32, target VA)
+    def emit(b): cave.extend(b)
+    def emit_call(target):
+        emit(b"\xE8"); calls.append((len(cave), target)); emit(b"\x00\x00\x00\x00")
+
+    emit(bytes([0x8B, 0x03]))                    # MOV EAX,[EBX]            ShipModule*
+    emit(bytes([0x8B, 0x40, 0x08]))              # MOV EAX,[EAX+8]          ShipModuleClass*
+    emit(bytes([0x83, 0x78, 0x78, 0x00]))        # CMP dword [EAX+0x78],0   email length
+    je_pos = len(cave)
+    emit(bytes([0x0F, 0x84, 0, 0, 0, 0]))        # JE skip
+    emit(bytes([0x56]))                          # PUSH ESI
+    emit(bytes([0x89, 0xC6]))                    # MOV ESI,EAX
+    emit(bytes([0x83, 0xEC, 0x18]))              # SUB ESP,0x18             body slot (3rd arg)
+    emit(bytes([0x8B, 0xCC]))                    # MOV ECX,ESP
+    emit(bytes([0x8D, 0x46, 0x68]))              # LEA EAX,[ESI+0x68]
+    emit(bytes([0x50]))                          # PUSH EAX
+    emit_call(COPY_STR_VA)
+    emit(bytes([0x83, 0xEC, 0x18]))              # SUB ESP,0x18             subject slot (2nd arg)
+    emit(bytes([0x8D, 0x46, 0x08]))              # LEA EAX,[ESI+8]          module name
+    emit(bytes([0x83, 0x78, 0x14, 0x10]))        # CMP dword [EAX+0x14],0x10
+    emit(bytes([0x72, 0x02]))                    # JB +2
+    emit(bytes([0x8B, 0x00]))                    # MOV EAX,[EAX]            heap buffer
+    emit(bytes([0x50]))                          # PUSH EAX                 %s argument
+    emit(bytes([0xE8, 0, 0, 0, 0]))              # CALL $+5
+    pop_pos = len(cave)
+    emit(bytes([0x5A]))                          # POP EDX                  = address of this instruction
+    fmt_add_pos = len(cave)
+    emit(bytes([0x81, 0xC2, 0, 0, 0, 0]))        # ADD EDX,<offset to format string>
+    emit(bytes([0x52]))                          # PUSH EDX                 format
+    emit(bytes([0x8D, 0x44, 0x24, 0x08]))        # LEA EAX,[ESP+8]          the subject slot
+    emit(bytes([0x50]))                          # PUSH EAX                 destination
+    emit_call(FORMAT_VA)
+    emit(bytes([0x83, 0xC4, 0x0C]))              # ADD ESP,0xC
+    emit(bytes([0x83, 0xEC, 0x18]))              # SUB ESP,0x18             from slot (1st arg)
+    emit(bytes([0x8B, 0xCC]))                    # MOV ECX,ESP
+    emit(bytes([0x8D, 0x46, 0x38]))              # LEA EAX,[ESI+0x38]       manufacturer
+    emit(bytes([0x50]))                          # PUSH EAX
+    emit_call(COPY_STR_VA)
+    emit_call(GET_EMAIL_MGR_VA)                  # EAX = EmailManager*
+    emit(bytes([0x8B, 0xC8]))                    # MOV ECX,EAX
+    emit_call(ADD_CUSTOM_EMAIL_VA)               # (from, subject, body); callee pops the 3 strings
+    emit(bytes([0x5E]))                          # POP ESI
+    skip_pos = len(cave)
+    emit(bytes([0x8B, 0x03]))                    # MOV EAX,[EBX]            replay displaced instructions
+    emit(bytes([0x83, 0xEC, 0x18]))              # SUB ESP,0x18
+    jmp_pos = len(cave)
+    emit(bytes([0xE9, 0, 0, 0, 0]))              # JMP resume
+    fmt_pos = len(cave)
+    emit(b"Your new %s\x00")
+
+    cave_va = ptch_va + cave_cursor
+    struct.pack_into("<i", cave, je_pos + 2, skip_pos - (je_pos + 6))
+    struct.pack_into("<i", cave, fmt_add_pos + 2, fmt_pos - pop_pos)
+    for pos, target in calls:
+        struct.pack_into("<i", cave, pos, target - (cave_va + pos + 4))
+    struct.pack_into("<i", cave, jmp_pos + 1, RESUME_VA - (cave_va + jmp_pos + 5))
+    data[ptch_off + cave_cursor: ptch_off + cave_cursor + len(cave)] = cave
+
+    neutralize_relocations(data, pe, SITE_VA, len(expected), label)
+    redirect = bytearray([0xE9, 0, 0, 0, 0])
+    struct.pack_into("<i", redirect, 1, cave_va - (SITE_VA + 5))
+    data[off:off + len(expected)] = redirect
+
+    print(f"  [OK] {label}")
+    FIXES_APPLIED.append(label)
+    return cave_cursor + len(cave)
+
+
+# ============================================================
 # Fix 18: clicking the posters in the Ceres Mk III cabin (or the desk PC in
 # the Enceladus cabin, or the Proxima's equivalent) zooms the camera in, but
 # the scroll wheel can't zoom back out. Those are the game's only
@@ -3078,6 +3186,7 @@ def main():
     fix_stationary_while_docking(data, pe)
     cave_cursor = fix_board_docked_sound(data, pe, ptch_va, ptch_off, cave_cursor)
     cave_cursor = fix_changedetails_beep(data, pe, ptch_va, ptch_off, cave_cursor)
+    cave_cursor = fix_module_purchase_email(data, pe, ptch_va, ptch_off, cave_cursor)
     pe.close()
 
     if cave_cursor > ptch_size:
