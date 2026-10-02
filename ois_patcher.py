@@ -1651,9 +1651,10 @@ def fix_module_purchase_email(data, pe, ptch_va, ptch_off, cave_cursor):
     emit(bytes([0x72, 0x02]))                    # JB +2
     emit(bytes([0x8B, 0x00]))                    # MOV EAX,[EAX]            heap buffer
     emit(bytes([0x50]))                          # PUSH EAX                 %s argument
-    emit(bytes([0xE8, 0, 0, 0, 0]))              # CALL $+5
+    emit(bytes([0xE8, 0, 0, 0, 0]))              # CALL $+5   pushes the return address ON TOP of the %s arg
     pop_pos = len(cave)
-    emit(bytes([0x5A]))                          # POP EDX                  = address of this instruction
+    emit(bytes([0x5A]))                          # POP EDX    takes that return address (the %s arg stays on the stack)
+                                                 #            = address of this instruction, the PIC anchor
     fmt_add_pos = len(cave)
     emit(bytes([0x81, 0xC2, 0, 0, 0, 0]))        # ADD EDX,<offset to format string>
     emit(bytes([0x52]))                          # PUSH EDX                 format

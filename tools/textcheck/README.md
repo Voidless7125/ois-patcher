@@ -4,8 +4,9 @@
 *Objects in Space*'s `assets/*.txt` files, and turns **reviewed** corrections into patch
 data in the same shape `apply_data_fixes.py` already uses.
 
-Nothing here edits the game, and nothing is wired into `ois_patcher.py` yet. See
-[REPORT.md](REPORT.md) for what was found and what needs a human decision.
+The generator itself is optional and never edits the game. Its output, `text_fixes.py` at the
+repo root, **is** used: `apply_data_fixes.py` loads it automatically when the patcher installs
+the bugfix mod. See [REPORT.md](REPORT.md) for what was found and what needs a human decision.
 
 ## What it looks at
 
@@ -43,19 +44,15 @@ game text is bundled. Each snippet's expected occurrence count is checked agains
 player's own file at install time, exactly like the existing data fixes. The generator also
 validates its own output by simulating the patcher before writing anything.
 
-### Using `text_fixes.py` in the patcher
+### How `text_fixes.py` is used by the patcher
 
-`text_fixes.py` is loaded automatically by `apply_data_fixes.py` when present, so no manual merge is needed. Its entries are merged into the existing `FIXES` table per file before the normal `apply_all` verification.
+`apply_data_fixes.py` loads `text_fixes.py` automatically and merges its entries into the existing
+`FIXES` table per file (a file such as `modules_arms.txt` can have entries in both), so no manual
+step is needed. If the file is missing, the patcher prints a warning and installs without the text
+corrections. The release workflow packages it alongside `apply_data_fixes.py`.
 
-That adds 321 files to the generated mod. Run the real `apply_all` against a clean install afterwards. In testing, the patcher's own `apply_all` applied all 321 files with 0 skipped, and the
-result matched an independently built copy.
-for name, entries in TEXT_FIXES.items():
-    FIXES.setdefault(name, []).extend(entries)
-```
-
-That adds 321 files to the generated mod. Run the real `apply_all` against a clean install
-afterwards. In testing, the patcher's own `apply_all` applied all 321 files with 0 skipped, and the
-result matched an independently built copy.
+The corrections add 321 files to the generated mod. In testing, the patcher's own `apply_all`
+applied all 321 with 0 skipped, and the result matched an independently built copy.
 
 ## Honest limits
 
