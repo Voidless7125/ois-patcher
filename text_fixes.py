@@ -651,7 +651,7 @@ TEXT_FIXES = {
         (1, "Placards saing 'solitary, sovereign,", "Placards saying 'solitary, sovereign,"),
     ],
     'news_proudgoesontheoffensive.txt': [
-        (1, 'Sarni, it seemsl ike the system', 'Sarni, it seems ike the system'),
+        (1, 'Sarni, it seemsl ike the system', 'Sarni, it seems like the system'),
         (1, 'Inerviewer: "So you\'d suggest', 'Interviewer: "So you\'d suggest'),
     ],
     'news_proudstacticsasoldastimeitself.txt': [

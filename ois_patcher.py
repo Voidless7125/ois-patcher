@@ -808,7 +808,7 @@ def fix_pda_render_guard(data, pe, ptch_va, ptch_off, cave_cursor):
 # this fix only removes the crash and reports the same protected message
 # the developers' own code prints for the with-extension case.
 #
-# History: earlier releases (0.3.x up to 0.3.7) also made DEL able to
+# History: releases 0.3.0 through 0.3.8 also made DEL able to
 # delete COM commands. That was a regression -- the original game never
 # deleted anything -- and has been removed.
 # ============================================================

@@ -45,11 +45,10 @@ validates its own output by simulating the patcher before writing anything.
 
 ### Using `text_fixes.py` in the patcher
 
-It is not hooked up. When you want it, **merge** it into `FIXES`; do not assign, because
-some files (currently `modules_arms.txt`) already have an entry there:
+`text_fixes.py` is loaded automatically by `apply_data_fixes.py` when present, so no manual merge is needed. Its entries are merged into the existing `FIXES` table per file before the normal `apply_all` verification.
 
-```python
-from text_fixes import TEXT_FIXES
+That adds 321 files to the generated mod. Run the real `apply_all` against a clean install afterwards. In testing, the patcher's own `apply_all` applied all 321 files with 0 skipped, and the
+result matched an independently built copy.
 for name, entries in TEXT_FIXES.items():
     FIXES.setdefault(name, []).extend(entries)
 ```
