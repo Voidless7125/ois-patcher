@@ -23,7 +23,7 @@ treated as prose.
 python ois_textcheck.py scan  --assets "C:\...\Objects in Space\assets" --out textcheck_out [--grammar]
 
 # 2. after reviewing, generate patch data from corrections.py (validated before writing)
-python ois_textcheck.py fixes --assets "C:\...\Objects in Space\assets" --out text_fixes.py [--name-variants]
+python ois_textcheck.py fixes --assets "C:\...\Objects in Space\assets" --out ../../text_fixes.py [--name-variants]
 ```
 
 `scan` writes CSVs for human review: `spelling_unknown.csv` (words unknown to both the
