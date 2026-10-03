@@ -557,14 +557,14 @@ before:
   status screen — the status line is several labels stacked in one place,
   and the "stationary" label (speed is zero) didn't step aside while you
   were docking, so both could show at once as garbled text. It now does.
-- **Station sounds go wrong after visiting your own ship** — after walking
-  into your ship and back onto a docked station, the game kept "listening"
-  for sounds from your ship instead of the station. On the Admin Terminal
-  this meant typing clicks went silent and the [change details] beep moved
-  around depending on where you'd been. Stepping onto a docked station now
-  updates the sound listener like every other transition does, and the
-  [change details] beep plays where you actually are. Typing clicks and the
-  confirmation beep are now both heard, every time.
+- **Station sounds inaudible depending on where you've been** — the game
+  only plays sounds tied to a ship if that ship is the one it's
+  "listening" to, but station terminals tie their sounds to different
+  ships: terminal button beeps to your own ship, typing clicks to the
+  station you're standing on. So which sounds you heard depended on
+  whether you'd loaded your save at the station or walked over from your
+  ship (on the Admin Terminal, typing clicks and the [change details]
+  beep swapped). Now both kinds play, every time, on every terminal.
 - **Enceladus airlock buttons respond slightly below where they're drawn**
   — the invisible click areas for the Inner and Outer airlock door buttons
   sat 1–2 units low, so pointing at the top of the lower button picked the
@@ -611,9 +611,13 @@ non-commercial purposes, as long as you credit the original author
 
 ## Version history
 
-### 0.3.9
+### 0.4.0 - 2026-10-03
 
-- **New fix:** buying a module now delivers its welcome email (queued for your next comms sync), and the shared category emails name their own maker and model (exe + mod).
+- **New fix (Fix 22):** module purchase emails were never sent. Buying a
+  module from Mechanixx now queues its welcome email for your next comms
+  sync, and the shared category emails name their own maker and model
+  (e.g. "Kruger Interstellar DRAK Grappling Arm" instead of a generic
+  one) (exe + mod).
 - **New fix:** about 450 spelling and grammar corrections across roughly 320 text files, including a misspelled `$amount` token that showed the player "$amonut" (mod).
 - **Fixed a regression:** the mail-terminal `DEL` command could delete
   commands. The original game never let you; it now only refuses, as
@@ -621,6 +625,19 @@ non-commercial purposes, as long as you credit the original author
   `DEL DIR`, `DEL VIEW`).
 - **New fix:** Comms Download / Sync terminal no longer shows dead help
   and log buttons on the Enceladus and Proxima (mod).
+
+### 0.3.9 - 2026-10-03
+
+- **Fixed a sound regression from 0.3.8:** station terminal beeps
+  (docking computer, commodities, contracts and other terminals) stopped
+  playing correctly. 0.3.8's fix for the Admin Terminal sounds (GitHub
+  issue #21) changed which ship the game listens to for sounds while
+  you're on a station, but nearly every terminal's beeps are tied to your
+  own ship, so they went quiet. That change is gone; instead the game now
+  plays a ship's sounds if they belong to the ship it's listening to,
+  your own ship, or the vessel you're standing on. Typing clicks, the
+  [change details] beep, and every other terminal's beeps now all play
+  correctly. If you're on 0.3.8, re-run the patcher to upgrade.
 
 ### 0.3.8 - 2026-10-01
 
