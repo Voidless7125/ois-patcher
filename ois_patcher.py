@@ -151,7 +151,7 @@ SERVER_FIXES_SKIPPED = []
 # already patched" refusal means "you already ran this exact version" or
 # "an older version patched this -- restore the backup and re-run to
 # upgrade", instead of one generic message either way.
-PATCHER_VERSION = "0.3.9"
+PATCHER_VERSION = "0.4.0"
 VERSION_MARKER_PREFIX = b"OISPATCH:"
 VERSION_MARKER_SIZE = 32  # reserved bytes at the start of .ptch's raw data
 
@@ -1589,7 +1589,7 @@ def fix_decrease_drive_label(data, pe):
 
 
 # ============================================================
-# Fix 19: module purchase emails are never sent.
+# Fix 22: module purchase emails are never sent.
 # Every module data file can carry an `email=` text ("Congratulations on
 # purchasing your Kruger Interstellar DRAK Grappling Arm! ..."; 71 of them
 # ship in the game). DataLoader::createModule stores it in the module class
@@ -1900,100 +1900,64 @@ def fix_stationary_while_docking(data, pe):
 
 
 # ============================================================
-# Fix 21: after visiting your own ship, sounds on a station go wrong (on
-# the Admin Terminal, typing clicks go silent and the [change details] beep
-# starts playing). Ship-attached sounds only play for the sound engine's
-# "listening" ship; every vessel transition re-points it via
-# PresentationInterface::configureSoundForShip except boardDockedVessel
-# (own ship -> docked station), which left it on your own ship. Fix: call
-# configureSoundForShip in boardDockedVessel right after currentlyBoardedShip
-# is set, mirroring leaveDockedVessel. See BUGS.md BUG-033 (GitHub issue #21).
+# Fix 21 (0.3.9; replaces 0.3.8's fix_board_docked_sound +
+# fix_changedetails_beep, which silenced station-terminal beeps): on a
+# station, some sounds were inaudible depending on whether you'd loaded the
+# save there or had visited your own ship (Admin Terminal typing clicks and
+# the [change details] beep swapping). SoundEngine::playSound(Ship*) only
+# played a ship-attached sound for the engine's single "listening" ship,
+# but station-terminal command beeps attach to your own ship while typing
+# clicks attach to the vessel you're aboard. Fix: also play the sound when
+# the ship is ShipData::currentlyBoardedShip or the player's own ship
+# *(g_gameData+0xd0). In flight all three are the same ship; other ships'
+# sounds are still filtered; the networked branch is untouched. PIC; no new
+# relocs. See BUGS.md BUG-033 (GitHub issue #21).
 # ============================================================
 
-def fix_board_docked_sound(data, pe, ptch_va, ptch_off, cave_cursor):
-    label = "Station sounds routed to your own ship after visiting it"
-    SITE_VA, RESUME_VA = 0x0052f470, 0x0052f478
-    CONFIGURE_SOUND_VA = 0x0052e030
-    expected = bytes.fromhex("8BCF" "8B8678010000")   # MOV ECX,EDI / MOV EAX,[ESI+0x178]
+def fix_ship_sound_listener(data, pe, ptch_va, ptch_off, cave_cursor):
+    label = "Station sounds inaudible depending on where you've been (terminal beeps / typing clicks)"
+    SITE_VA, PLAY_VA, SKIP_VA = 0x00559d20, 0x00559d28, 0x00559d41
+    BOARDED_VA, GAMEDATA_VA = 0x0065d50c, 0x0065d704
+    expected = bytes.fromhex("8B4508" "3B4124" "7519")   # MOV EAX,[EBP+8] / CMP EAX,[ECX+0x24] / JNZ skip
     off = verify_site(data, pe, SITE_VA, expected, label)
     if off is None:
         FIXES_SKIPPED.append(label)
         return cave_cursor
     neutralize_relocations(data, pe, SITE_VA, len(expected), label)
 
-    cave = bytearray()
-    fixups = []
-    def emit(b): cave.extend(b)
-    def rel32(prefix, t): emit(prefix + b"\x00\x00\x00\x00"); fixups.append((len(cave) - 4, t))
-    emit(bytes.fromhex("8BCF"))               # MOV ECX,EDI          (this)
-    rel32(b"\xE8", CONFIGURE_SOUND_VA)        # CALL configureSoundForShip
-    emit(expected)                            # replay MOV ECX,EDI / MOV EAX,[ESI+0x178]
-    rel32(b"\xE9", RESUME_VA)                 # JMP back (PUSH [EAX+0x2ac] / CALL showRoom)
-
     cave_va = ptch_va + cave_cursor
-    for pos, t in fixups:
-        struct.pack_into("<i", cave, pos, t - (cave_va + pos + 4))
-    data[ptch_off + cave_cursor: ptch_off + cave_cursor + len(cave)] = cave
-    cave_cursor += len(cave)
+    c = bytearray()
+    labels, j8s, j32s = {}, [], []
+    def emit(b): c.extend(b)
+    def mark(n): labels[n] = cave_va + len(c)
+    def j8(op, t): emit(bytes([op, 0])); j8s.append((len(c) - 1, t))
+    def jmp32(t): emit(b"\xE9\x00\x00\x00\x00"); j32s.append((len(c) - 4, t))
 
-    redirect = bytearray(b"\xE9") + struct.pack("<i", cave_va - (SITE_VA + 5)) + b"\x90" * (len(expected) - 5)
-    data[off:off + len(expected)] = redirect
-    print(f"  [OK] {label}")
-    FIXES_APPLIED.append(label)
-    return cave_cursor
+    emit(bytes.fromhex("8B4508"))           # MOV EAX,[EBP+8]         ship
+    emit(bytes.fromhex("3B4124"))           # CMP EAX,[ECX+0x24]      listening ship (original test)
+    j8(0x74, "play")                        # JZ  play
+    emit(bytes.fromhex("85C0"))             # TEST EAX,EAX
+    j8(0x74, "skip")                        # JZ  skip                null ship: original behaviour
+    emit(b"\xE8\x00\x00\x00\x00")           # CALL $+5
+    anchor = cave_va + len(c)
+    emit(b"\x5A")                           # POP EDX                 PIC anchor
+    emit(b"\x3B\x82" + struct.pack("<i", BOARDED_VA - anchor))    # CMP EAX,[currentlyBoardedShip]
+    j8(0x74, "play")                        # JZ  play
+    emit(b"\x8B\x92" + struct.pack("<i", GAMEDATA_VA - anchor))   # MOV EDX,[g_gameData]
+    emit(bytes.fromhex("85D2"))             # TEST EDX,EDX
+    j8(0x74, "skip")                        # JZ  skip
+    emit(bytes.fromhex("3B82D0000000"))     # CMP EAX,[EDX+0xd0]      player's own ship
+    j8(0x74, "play")                        # JZ  play
+    mark("skip"); jmp32(SKIP_VA)
+    mark("play"); jmp32(PLAY_VA)
+    for pos, t in j8s:
+        c[pos] = (labels[t] - (cave_va + pos + 1)) & 0xFF
+    for pos, t in j32s:
+        struct.pack_into("<i", c, pos, t - (cave_va + pos + 4))
 
-
-# ============================================================
-# Fix 22: the Admin Terminal's [change details] confirmation beep (played by
-# ShipInterface::doChangeDetails) is attached to your own ship, so with Fix
-# 21 in place it would never be heard while you stand on the station. Fix:
-# attach its two sounds to ShipData::currentlyBoardedShip when set (the
-# vessel you're aboard), falling back to the original ship. Singleplayer
-# only by construction (networked clients send this command to
-# ois_server.exe). A shared PIC helper; no new relocs. See BUGS.md BUG-033.
-# ============================================================
-
-def fix_changedetails_beep(data, pe, ptch_va, ptch_off, cave_cursor):
-    label = "Admin Terminal [change details] beep not audible on a station"
-    GET_INSTANCE_VA = 0x004031d0
-    PLAY_SOUND_SHIP_VA = 0x00559ca0
-    BOARDED_VA = 0x0065d50c          # ShipData::currentlyBoardedShip
-    SITES = [(0x004e5054, 0x2d), (0x004e5065, 0x2b)]
-    offs = []
-    for site, snd in SITES:
-        o = va_to_offset(pe, site)
-        ok = (o is not None and data[o - 2:o] == bytes([0x6A, snd]) and data[o] == 0x56 and data[o + 1] == 0xE8
-              and site + 6 + struct.unpack_from("<i", data, o + 2)[0] == GET_INSTANCE_VA
-              and data[o + 6:o + 8] == b"\x8b\xc8" and data[o + 8] == 0xE8
-              and site + 13 + struct.unpack_from("<i", data, o + 9)[0] == PLAY_SOUND_SHIP_VA)
-        if not ok:
-            print(f"  [SKIP] {label}: unexpected bytes at VA {hex(site)}")
-            FIXES_SKIPPED.append(label)
-            return cave_cursor
-        offs.append(o)
-    for site, _ in SITES:
-        neutralize_relocations(data, pe, site, 6, label)
-
-    helper_va = ptch_va + cave_cursor
-    h = bytearray()
-    h += b"\x5A"                                   # POP EDX              (our return address)
-    h += b"\xE8\x00\x00\x00\x00"                   # CALL $+5
-    anchor = helper_va + len(h)
-    h += b"\x58"                                   # POP EAX              (PIC anchor)
-    h += b"\x8B\x80" + struct.pack("<i", BOARDED_VA - anchor)   # MOV EAX,[EAX+delta] = currentlyBoardedShip
-    h += b"\x85\xC0"                               # TEST EAX,EAX
-    h += b"\x75\x02"                               # JNZ +2
-    h += b"\x8B\xC6"                               # MOV EAX,ESI          (fallback: original ship)
-    h += b"\x50"                                   # PUSH EAX             (ship arg)
-    h += b"\x52"                                   # PUSH EDX             (return address)
-    jpos = len(h)
-    h += b"\xE9\x00\x00\x00\x00"                   # JMP getInstance      (tail call)
-    struct.pack_into("<i", h, jpos + 1, GET_INSTANCE_VA - (helper_va + jpos + 5))
-    data[ptch_off + cave_cursor: ptch_off + cave_cursor + len(h)] = h
-    cave_cursor += len(h)
-
-    for (site, _), o in zip(SITES, offs):
-        data[o:o + 6] = b"\xE8" + struct.pack("<i", helper_va - (site + 5)) + b"\x90"
+    data[ptch_off + cave_cursor: ptch_off + cave_cursor + len(c)] = c
+    cave_cursor += len(c)
+    data[off:off + len(expected)] = b"\xE9" + struct.pack("<i", cave_va - (SITE_VA + 5)) + b"\x90" * (len(expected) - 5)
     print(f"  [OK] {label}")
     FIXES_APPLIED.append(label)
     return cave_cursor
@@ -3185,8 +3149,7 @@ def main():
     fix_scroll_back_cameraclick(data, pe)
     fix_movecamera_null_ship(data, pe)
     fix_stationary_while_docking(data, pe)
-    cave_cursor = fix_board_docked_sound(data, pe, ptch_va, ptch_off, cave_cursor)
-    cave_cursor = fix_changedetails_beep(data, pe, ptch_va, ptch_off, cave_cursor)
+    cave_cursor = fix_ship_sound_listener(data, pe, ptch_va, ptch_off, cave_cursor)
     cave_cursor = fix_module_purchase_email(data, pe, ptch_va, ptch_off, cave_cursor)
     pe.close()
 
