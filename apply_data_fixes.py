@@ -406,6 +406,82 @@ def personalise_module_emails(assets_dir, mod_dst_dir):
     return changed
 
 
+# The game only reads news_*.txt and info_*.txt straight from its own assets/
+# folder (GameLogic loads them via OSInterface::listFiles(".\\assets\\*"), which never
+# looks at mod folders), so the mod system cannot override them.  Those fixes are
+# therefore applied to the files in place, with the untouched originals kept in a
+# folder OUTSIDE assets/ -- a backup left inside assets/ would itself match the
+# "news_" prefix and be loaded as a second article.
+INPLACE_PREFIXES = ("news_", "info_")
+ORIGINALS_DIRNAME = "oisbugfix_original_assets"
+
+
+def is_inplace(filename):
+    return filename.startswith(INPLACE_PREFIXES)
+
+
+def _apply_line_fixes(content, line_fixes):
+    """Returns the fixed text, or None if any snippet does not match exactly."""
+    for expected_count, old_line, new_line in line_fixes:
+        if content.count(old_line) != expected_count:
+            return None
+        content = content.replace(old_line, new_line)
+    return content
+
+
+def apply_inplace(assets_dir, backup_dir):
+    """Applies the news_/info_ fixes directly to assets/, keeping originals.
+
+    Safe to re-run: the backup (if present) is the pristine source, unless the
+    game files changed underneath it (a game update), in which case the current
+    files become the new originals.  Returns (applied, skipped)."""
+    assets_dir, backup_dir = Path(assets_dir), Path(backup_dir)
+    applied = skipped = 0
+    for filename, line_fixes in FIXES.items():
+        if not is_inplace(filename):
+            continue
+        target = assets_dir / filename
+        if not target.is_file():
+            print(f"  [SKIP] {filename}: not found in {assets_dir}")
+            skipped += 1
+            continue
+        backup = backup_dir / filename
+        current = target.read_bytes().decode("utf-8")
+        original = current
+        if backup.is_file():
+            saved = backup.read_bytes().decode("utf-8")
+            if current == saved or current == _apply_line_fixes(saved, line_fixes):
+                original = saved
+            # else: the game file changed since we backed it up -> treat it as the new original
+        fixed = _apply_line_fixes(original, line_fixes)
+        if fixed is None:
+            print(f"  [SKIP] {filename}: expected known text, found something different -- "
+                  f"different game version or already modified")
+            skipped += 1
+            continue
+        backup_dir.mkdir(parents=True, exist_ok=True)
+        if not backup.is_file() or backup.read_bytes().decode("utf-8") != original:
+            backup.write_bytes(original.encode("utf-8"))
+        target.write_bytes(fixed.encode("utf-8"))
+        applied += 1
+    if applied:
+        print(f"  [OK] {applied} news/info article(s) corrected in place "
+              f"(originals kept in {backup_dir.name}/)")
+    return applied, skipped
+
+
+def restore_inplace(assets_dir, backup_dir):
+    """Copies every saved original back into assets/. Returns the number restored."""
+    assets_dir, backup_dir = Path(assets_dir), Path(backup_dir)
+    restored = 0
+    if backup_dir.is_dir():
+        for saved in sorted(backup_dir.glob("*.txt")):
+            if is_inplace(saved.name) and (assets_dir / saved.name).parent.is_dir():
+                (assets_dir / saved.name).write_bytes(saved.read_bytes())
+                restored += 1
+    return restored
+
+
 def apply_all(assets_dir, mod_dst_dir):
     """Reads each affected file from `assets_dir` (the user's own game
     install), applies the verified line fixes, and writes the result into
@@ -416,6 +492,8 @@ def apply_all(assets_dir, mod_dst_dir):
 
     applied, skipped = 0, 0
     for filename, line_fixes in FIXES.items():
+        if is_inplace(filename):
+            continue          # handled by apply_inplace(); the mod system cannot override these
         src = assets_dir / filename
         if not src.is_file():
             print(f"  [SKIP] {filename}: not found in {assets_dir}")
@@ -476,6 +554,8 @@ def install(game_root, bundled_mod_dir):
     shutil.copy2(modinfo_src, mod_dst / "modinfo.txt")
 
     applied, skipped = apply_all(assets_dir, mod_dst)
+    a2, s2 = apply_inplace(assets_dir, game_root / ORIGINALS_DIRNAME)
+    applied, skipped = applied + a2, skipped + s2
 
     print(f"\n[OK] Bugfix mod: {applied} fix(es) applied, {skipped} skipped -- installed to {mod_dst}")
     return True

@@ -2486,6 +2486,11 @@ def resolve_game_dir(explicit=None):
 PATCHABLE_EXES = ("ois.exe", "ois_server.exe")
 MOD_DIR_RELATIVE = ("ObjectsInSpace", "mods", "oisbugfix")
 BACKUP_SUFFIX = ".original-backup"
+# news_*/info_* corrections cannot go through the mod system (the game only reads
+# them from assets/), so they are applied in place; the untouched originals live
+# here, outside assets/ (see apply_data_fixes.apply_inplace).
+ORIGINALS_DIRNAME = "oisbugfix_original_assets"
+INPLACE_PREFIXES = ("news_", "info_")
 
 # state values from inspect_exe()
 STATE_MISSING = "missing"        # file isn't there
@@ -2646,6 +2651,40 @@ def remove_mod(game_dir):
     return True
 
 
+def saved_originals(game_dir):
+    """The news_/info_ originals this tool saved before correcting them in place."""
+    d = Path(game_dir) / ORIGINALS_DIRNAME
+    if not d.is_dir():
+        return []
+    return sorted(p for p in d.glob("*.txt") if p.name.startswith(INPLACE_PREFIXES))
+
+
+def restore_news_info(game_dir, keep_backup=False):
+    """Copies the saved news_/info_ originals back into assets/. Returns True on success."""
+    game_dir = Path(game_dir)
+    assets = game_dir / "assets"
+    originals = saved_originals(game_dir)
+    if not originals:
+        print("  [SKIP] news/info articles: no saved originals")
+        return True
+    restored = 0
+    for saved in originals:
+        try:
+            (assets / saved.name).write_bytes(saved.read_bytes())
+            restored += 1
+        except OSError as e:
+            print(f"  [ERROR] could not restore {saved.name}: {e}", file=sys.stderr)
+            return False
+    print(f"  [OK] restored {restored} news/info article(s) to their original text")
+    if not keep_backup:
+        try:
+            shutil.rmtree(game_dir / ORIGINALS_DIRNAME)
+            print(f"       removed {ORIGINALS_DIRNAME}/")
+        except OSError as e:
+            print(f"       [WARN] could not remove {ORIGINALS_DIRNAME}/: {e}")
+    return True
+
+
 def print_status(game_dir):
     game_dir = Path(game_dir)
     print(f"Install: {game_dir}")
@@ -2664,6 +2703,8 @@ def print_status(game_dir):
             print(f"  {'':<16} -> run this script with no arguments to update it to v{PATCHER_VERSION}")
     mod_dir = game_dir.joinpath(*MOD_DIR_RELATIVE)
     print(f"  {'bugfix mod':<16} {'installed at ' + str(mod_dir) if mod_dir.is_dir() else 'not installed'}")
+    n = len(saved_originals(game_dir))
+    print(f"  {'news/info text':<16} {f'{n} article(s) corrected in place; originals in {ORIGINALS_DIRNAME}/' if n else 'not modified'}")
 
 
 def confirm(question, assume_yes):
@@ -2708,8 +2749,11 @@ def uninstall(game_dir, assume_yes=False, keep_backups=False, extra_exes=()):
 
     mod_present = mod_dir.is_dir()
     print(f"  {'bugfix mod':<16} {'installed' if mod_present else 'not installed'}")
+    news_saved = saved_originals(game_dir)
+    print(f"  {'news/info text':<16} "
+          f"{str(len(news_saved)) + ' corrected article(s), originals saved' if news_saved else 'not modified'}")
 
-    if not restorable and not mod_present:
+    if not restorable and not mod_present and not news_saved:
         print("\nNothing installed by this script was found -- nothing to undo.")
         return True
 
@@ -2719,6 +2763,9 @@ def uninstall(game_dir, assume_yes=False, keep_backups=False, extra_exes=()):
               f"{'' if keep_backups else ', then delete that backup'}")
     if mod_present:
         print(f"  - delete {mod_dir}")
+    if news_saved:
+        print(f"  - restore {len(news_saved)} news/info article(s) in assets/ from {ORIGINALS_DIRNAME}/"
+              f"{'' if keep_backups else ', then delete that folder'}")
     print("  - leave save games, settings and every other game file untouched")
 
     if not confirm("\nProceed?", assume_yes):
@@ -2734,6 +2781,8 @@ def uninstall(game_dir, assume_yes=False, keep_backups=False, extra_exes=()):
         ok = restore_exe(exe_path, keep_backup=keep_backups) and ok
     if mod_present:
         remove_mod(game_dir)
+    if news_saved:
+        ok = restore_news_info(game_dir, keep_backup=keep_backups) and ok
 
     print("\n" + "=" * 60)
     if ok:
