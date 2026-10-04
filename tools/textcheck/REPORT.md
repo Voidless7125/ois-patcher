@@ -23,6 +23,7 @@ email shows the player the literal text "$amonut" instead of a number.
   voice (`ddf_nickfourieremail3.txt`: "dont", "therse", "its Nick Fourier").
 * **A cipher:** `fbl_estragongeorgeemail1.txt` has a +1 letter-shift line ("Bnld ehmc sgd adzbnm" = "Come find the beacon").
 * **Radio static:** `smj_hammerhead.txt` ("[garbled] -ngerous").
+* **Character voice / rhetoric (confirmed by the maintainer):** `svo_cortlanddehaas.txt` "wordhole" (the speaker's own word), `ows_shengxu.txt` "...? Than the Magellan bureaucrat...? Than the Galilean official...?" (repeated "more criminal than ...?"), `yrs_jylliandirou.txt` "it striked me" (slang speaker).
 * **A joke:** `rdc_freddydunning.txt:178` ("Is it projenitators? Progenators? Projenitors?").
 * **Dialect and interjections:** `gonna`, `lookin'`, `ain't`, `you was`, `'allo`, `jus'`, `Aaaaah`, `Hmmm`, censored swearing.
 * **Variant spellings that are not errors:** `benefitted`, `unmistakeable`, `licenced`, `reenforced`, `moreso`, `protestors`, `despatching`.

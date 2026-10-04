@@ -232,6 +232,12 @@ automatically, in order:
 5. Generates and installs the `oisbugfix` mod into
    `ObjectsInSpace/mods/oisbugfix/`, reading the affected files fresh
    out of your own `assets/` folder.
+   The one exception is the `news_*` and `info_*` article files: the game
+   reads those straight from `assets/` and the mod system can't override
+   them, so their spelling fixes are applied to the files in place. The
+   untouched originals are saved first in `oisbugfix_original_assets/`
+   (next to `ois.exe`, deliberately *outside* `assets/`, where a copy would
+   be picked up as a second article).
 
 **4. Check the summary printed at the end.** A successful run ends with
 a block like:
@@ -366,8 +372,9 @@ Run against your detected (or given) install, this puts the game folder
 back the way it was: restores `ois.exe` and `ois_server.exe` from their
 `.original-backup` files (each one verified to be a genuine pristine
 original before it's used, and the restore itself verified byte-for-byte
-after writing), and removes the `oisbugfix` folder from
-`ObjectsInSpace/mods/`. Asks for confirmation first, showing exactly
+after writing), removes the `oisbugfix` folder from
+`ObjectsInSpace/mods/`, and puts the original `news_*` / `info_*` article
+files back from `oisbugfix_original_assets/`. Asks for confirmation first, showing exactly
 what it's about to do; add `--yes` to skip that if you're scripting it.
 Your save games and every other game file are left untouched.
 
@@ -382,6 +389,9 @@ before:
 - **Server exe:** if `ois_server.exe.original-backup` exists, copy it back
   over `ois_server.exe` the same way.
 - **Mod:** delete the `oisbugfix` folder from `ObjectsInSpace/mods/`.
+- **News/info text:** copy the files in `oisbugfix_original_assets/` back
+  into `assets/`, then delete that folder. (Steam's "Verify integrity of
+  game files" also restores them.)
 
 ## Fixes included
 
@@ -522,8 +532,10 @@ before:
   importance". One is a real bug: a misspelled `$amonut` substitution token
   in `passengers.txt` made an email show the literal text "$amonut". Dialect,
   deliberately garbled messages and invented names are left alone, and no
-  person-name spellings are changed. (Mod-only fix, no exe patch needed.
-  Review notes: `tools/textcheck/REPORT.md`.)
+  person-name spellings are changed. (No exe patch needed. Most of it goes
+  in the mod; the `news_*`/`info_*` articles are corrected in place in
+  `assets/` with the originals kept, because the game's mod system can't
+  override those. Review notes: `tools/textcheck/REPORT.md`.)
 - **Buying a module never sends its welcome email** — every module's data
   file has an `email=` text ("Congratulations on purchasing your Kruger
   Interstellar DRAK Grappling Arm! ..."; 71 of them), and the game loads it,
@@ -618,7 +630,7 @@ non-commercial purposes, as long as you credit the original author
   sync, and the shared category emails name their own maker and model
   (e.g. "Kruger Interstellar DRAK Grappling Arm" instead of a generic
   one) (exe + mod).
-- **New fix:** about 450 spelling and grammar corrections across roughly 320 text files, including a misspelled `$amount` token that showed the player "$amonut" (mod).
+- **New fix:** about 435 spelling and grammar corrections across roughly 320 text files, including a misspelled `$amount` token that showed the player "$amonut". The game can't mod `news_*`/`info_*` files, so those 179 articles are corrected in place in `assets/`, with originals saved in `oisbugfix_original_assets/` (restored by `--uninstall`). Three lines flagged in review as intentional (a character's "wordhole", a repeated "Than the …?" construction, "it striked me" slang) are left as written.
 - **Fixed a regression:** the mail-terminal `DEL` command could delete
   commands. The original game never let you; it now only refuses, as
   before, and no longer crashes on a name with no extension (`DEL DEL`,
