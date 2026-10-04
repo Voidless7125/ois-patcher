@@ -587,6 +587,51 @@ before:
   button and out of line with the JUMP button above it. Moved back.
   (Mod-only fix, no exe patch needed.)
 
+## Optional variant: a point-defence system that works (`--pds-everything`)
+
+This is **not a bug fix and is off by default.** It changes gameplay balance, so
+it is a separate opt-in rather than part of the standard patch.
+
+```
+python ois_patcher.py --pds-everything
+```
+
+**Why the stock PDS never stops a torpedo.** From the decompiled code, in order of
+importance:
+
+1. **The shot does nothing to a torpedo.** The PDS "hits" by calling the same
+   `Ship::damage` routine used for ships, and that routine returns immediately for
+   vessel type 4 (torpedoes, probes, mines). Torpedoes can be *selected* but never
+   *hurt*. That is the real bug.
+2. **It only picks the first thing in range.** Selection walks the sector's vessel
+   list and returns the first one that has its IFF transponder off or is a weapon,
+   so a nearer no-IFF ship wins over an incoming torpedo.
+3. **Even when it can hurt something it usually misses.** It must roll a 1 on the
+   module's hit dice (`hitchance=1d6` on the PDL 101), once per reload.
+
+**What the variant changes**
+
+- Targets, in priority order: **hostile torpedoes, probes and mines** first, then
+  **every ordinary ship regardless of IFF**, then **enemy countermeasure decoys**.
+- Never targeted: **space stations and jump gates**, **ships that are docked**,
+  **your own ship**, and **your own torpedoes/probes/mines/decoys**.
+- A locked torpedo is simply destroyed (no hit roll, and no warhead blast at
+  point-blank range). Ships still take the stock heat damage and still need the hit
+  roll; a destroyed decoy's timer is expired so the game removes it.
+- It applies to `ois.exe` **and** `ois_server.exe`, and to NPC ships' PDS modules too.
+
+**Things to know before using it**
+
+- It will fire on neutral and friendly ships in range, because that is what
+  "everything" means. Docked ships and stations are the only ship-like exceptions.
+- Throughput is still limited by the module's own range, power and reload time, so a
+  large salvo can overwhelm it.
+- The caves are emulation-tested (`tools/pds/test_pds.py`), but nobody has watched a
+  torpedo get shot down in the live game yet. Report what you see.
+- The variant is recorded in the exe's version marker (`v0.4.0+pds`). Running the
+  patcher with or without the flag later switches between the two through the normal
+  restore-and-repatch, after asking. `--uninstall` removes either.
+
 ## Limitations
 
 Only tested against the **Windows Steam** build of `ois.exe` and
@@ -625,6 +670,7 @@ non-commercial purposes, as long as you credit the original author
 
 ### 0.4.0 - 2026-10-03
 
+- **New optional variant, off by default:** `--pds-everything` makes the point-defence system shoot torpedoes, probes, decoys and ships regardless of IFF, and actually destroy torpedoes (the stock PDS can select a torpedo but its shot has no effect on one). See "Optional variant" above for what it does and does not shoot.
 - **New fix (Fix 22):** module purchase emails were never sent. Buying a
   module from Mechanixx now queues its welcome email for your next comms
   sync, and the shared category emails name their own maker and model
