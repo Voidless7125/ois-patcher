@@ -1974,6 +1974,53 @@ def fix_ship_sound_listener(data, pe, ptch_va, ptch_off, cave_cursor):
 # ois.exe's fixes above -- own backup, own .ptch section, own version
 # marker -- since it's a completely different binary.
 
+
+# ============================================================
+# Fix 23: docking at a station (or jumping) in any scenario other than the story
+# campaign overwrites save slot 1.  SaveHandler::saveGame only checks that a
+# game is loaded and that the scenario's mode is "full" (== 2).  Plenty of
+# stand-alone scenarios (Convoy Attack, Survival, Stealth, Escape, Defend, the
+# quickstart, ...) are also mode=full, and their scenariocat is absent, which
+# the loader reads as "single".  The story scenario is the only one whose
+# description says "This game auto-saves whenever you dock/undock or use a
+# jumpgate" (scenariocat=story, ScenarioCategory 1 at Scenario+0x6C).
+# Fix: also require the story category before saving.  Skipping the save also
+# skips the Stats::storeStats call that follows it, so statistics from
+# non-story scenarios are no longer persisted at those moments.
+# ============================================================
+
+def fix_scenario_autosave(data, pe, ptch_va, ptch_off, cave_cursor):
+    label = "Docking in a non-story scenario overwrites save slot 1"
+    SITE_VA = 0x004B8789                       # SaveHandler::saveGame, the scenario-mode guard
+    expected = bytes.fromhex("83787002" "0F85")  # CMP [EAX+0x70],2 / JNE <not saving>
+    off = verify_site(data, pe, SITE_VA, expected, label)
+    if off is None:
+        FIXES_SKIPPED.append(label)
+        return cave_cursor
+    NOT_SAVING = SITE_VA + 10 + struct.unpack_from("<i", data, off + 6)[0]
+    CONTINUE = SITE_VA + 10
+    if verify_site(data, pe, CONTINUE, bytes.fromhex("8D4DD8"), label + " (save path)") is None \
+            or verify_site(data, pe, NOT_SAVING, bytes.fromhex("68F4196100"), label + " (not-saving path)") is None:
+        FIXES_SKIPPED.append(label)
+        return cave_cursor
+    neutralize_relocations(data, pe, SITE_VA, 10, label)
+
+    cave_va = ptch_va + cave_cursor
+    cave = bytearray()
+    cave += bytes.fromhex("83787002")                                   # CMP [EAX+0x70],2     (mode full, as before)
+    cave += b"\x0F\x85" + struct.pack("<i", NOT_SAVING - (cave_va + len(cave) + 6))
+    cave += bytes.fromhex("83786C01")                                   # CMP [EAX+0x6C],1     category == story
+    cave += b"\x0F\x85" + struct.pack("<i", NOT_SAVING - (cave_va + len(cave) + 6))
+    cave += b"\xE9" + struct.pack("<i", CONTINUE - (cave_va + len(cave) + 5))
+    data[ptch_off + cave_cursor: ptch_off + cave_cursor + len(cave)] = cave
+    cave_cursor += len(cave)
+
+    data[off:off + 10] = b"\xE9" + struct.pack("<i", cave_va - (SITE_VA + 5)) + b"\x90" * 5
+    print(f"  [OK] {label}")
+    FIXES_APPLIED.append(label)
+    return cave_cursor
+
+
 # ============================================================
 # OPTIONAL VARIANT (--pds-everything): the point-defence system shoots
 # everything in range.  Not applied by default -- it changes gameplay balance
@@ -3529,6 +3576,7 @@ def main():
     fix_stationary_while_docking(data, pe)
     cave_cursor = fix_ship_sound_listener(data, pe, ptch_va, ptch_off, cave_cursor)
     cave_cursor = fix_module_purchase_email(data, pe, ptch_va, ptch_off, cave_cursor)
+    cave_cursor = fix_scenario_autosave(data, pe, ptch_va, ptch_off, cave_cursor)
     if PDS_VARIANT:
         cave_cursor = fix_pds_target_everything(data, pe, ptch_va, ptch_off, cave_cursor)
     if CIV_VARIANT:
