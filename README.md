@@ -644,10 +644,15 @@ python ois_patcher.py --civilians-comply
 **What the stock game does** (decompiled `ShipBehaviour::respondToPirateDemand`, run
 when you pick "Drop your cargo or be fired upon." on a hail):
 
-- A civilian rolls `rand()%100+1 <= chance`. The base chance comes from a table
-  indexed by the ship's tier 0-3: **100, 90, 60, 15 %**. If your **IFF is on** it is
-  forced to **2 %** ("You realise your IFF is on?"); beyond 120 units it is cut to
-  two thirds, beyond 180 units to 5 %.
+- A civilian rolls `rand()%100+1 <= chance`. The base chance is looked up by the
+  captain's **style** - the `captainstyle=` value in the scenario data, or a random one
+  for generated traffic: **cautious 100 %, moderate 90 %, reckless 60 %, very reckless
+  15 %**. (Style is a combat personality in the data files: how far the captain runs the
+  battery down and at what firing solution. The developers reused it here.) **The roll
+  does not look at how much cargo they carry, what it is worth, or whether they smuggle.**
+- If your **IFF is on** it is forced to **2 %** ("You realise your IFF is on?"); beyond
+  120 units it is cut to two thirds, beyond 180 units to 5 %. A very reckless captain at
+  mid range is therefore about 10 %.
 - If the civilian's *own sensors* hold a weapon contact within 100 units, the chance
   becomes the table value x 1.5 (max 100). Otherwise a failed roll says **"We'll
   believe it when we see a torpedo."** - whether or not you have just fired one that
@@ -656,10 +661,14 @@ when you pick "Drop your cargo or be fired upon." on a hail):
   `PrivateCommsManager::switchTo` refuses to open a conversation with any ship whose
   list contains you, so after **one** demand - complied with or not - **you can never
   hail that ship again.**
+- When a civilian does comply it jettisons one random non-empty pod. With an empty hold
+  it still says "We are complying" and drops nothing.
 
 **What the variant changes**
 
-1. The chance table becomes **100, 100, 90, 60 %** (each tier moves up one).
+1. The chance table becomes **cautious 100 %, moderate 90 %, reckless 70 %, very
+   reckless 35 %** (reckless +10, very reckless +20; the two cautious tiers are already
+   near-certain and are left alone).
 2. A torpedo, probe or mine **you launched that is still in flight within 250 units**
    of the civilian counts as "seen", whatever the civilian's sensors say, so it gets
    the x 1.5 boost instead of the "believe it when we see a torpedo" refusal.
@@ -672,12 +681,14 @@ and everything about NPC ships that are not civilians. Applies to `ois.exe` and
 
 **Things to know**
 
-- I could not tell from the code which tier a given civilian is, so all four were
-  raised. A tier-3 civilian goes from 15 % to 60 % (90 % with a torpedo in view).
+- An earlier build of this variant used 100/100/90/60, which made nearly every
+  civilian comply; this is the toned-down version.
 - A torpedo that has already hit, been shot down or timed out does not count; only one
   still in flight does. With your IFF on and no torpedo near, the chance is still 2 %.
 - Being able to re-hail means you can demand repeatedly and strip a civilian's cargo
   pods one by one. That is the point, but it is more generous than the stock design.
+- Making the chance depend on cargo amount, value or smuggling would be a new mechanic
+  rather than a tweak; it is not in this variant.
 - Tested in a CPU emulator (`tools/civ/test_civ.py`), not yet seen in the live game.
 
 ## Limitations
@@ -718,7 +729,7 @@ non-commercial purposes, as long as you credit the original author
 
 ### 0.4.0 - 2026-10-03
 
-- **New optional variant, off by default:** `--civilians-comply` makes civilians give in to a cargo demand far more readily (chance table 100/90/60/15 % -> 100/100/90/60 %), counts your own torpedo still in flight as a credible threat, and no longer locks you out of hailing a civilian after one demand. See "Optional variant: civilians who give in" above.
+- **New optional variant, off by default:** `--civilians-comply` makes civilians give in to a cargo demand far more readily (chance by captain style 100/90/60/15 % -> 100/90/70/35 %), counts your own torpedo still in flight as a credible threat, and no longer locks you out of hailing a civilian after one demand. See "Optional variant: civilians who give in" above.
 - **New optional variant, off by default:** `--pds-everything` makes the point-defence system shoot torpedoes, probes, decoys and ships regardless of IFF, and actually destroy torpedoes (the stock PDS can select a torpedo but its shot has no effect on one). See "Optional variant" above for what it does and does not shoot.
 - **New fix (Fix 22):** module purchase emails were never sent. Buying a
   module from Mechanixx now queues its welcome email for your next comms

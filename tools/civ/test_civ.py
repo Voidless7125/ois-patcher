@@ -41,7 +41,7 @@ def main():
     raw = bytes(emu.uc.mem_read(FUNC + 0x11E, 7))
     table = struct.unpack_from("<I", raw, 3)[0]
     vals = struct.unpack("<4I", bytes(emu.uc.mem_read(table, 16)))
-    check("dropCargoChance is {100, 100, 90, 60}", vals == (100, 100, 90, 60), str(vals))
+    check("dropCargoChance is {100, 90, 70, 35}", vals == (100, 90, 70, 35), str(vals))
 
     print("demand no longer blocks hailing")
     sec = emu.alloc(0x200)

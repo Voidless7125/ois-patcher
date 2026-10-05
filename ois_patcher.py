@@ -2181,8 +2181,9 @@ def fix_pds_target_everything(data, pe, ptch_va, ptch_off, cave_cursor, server=F
 # From the decompiled ShipBehaviour::respondToPirateDemand (called when you pick
 # "Drop your cargo or be fired upon." on a hail):
 #   * A civilian (craft purpose 1) rolls rand()%100+1 <= chance.  The base chance
-#     comes from the table `dropCargoChance`, indexed by the ship's tier 0..3:
-#     {100, 90, 60, 15}.  If your IFF is on it is forced to 2%; beyond 120 units it
+#     comes from the table `dropCargoChance`, indexed by the captain's STYLE (data key
+#     `captainstyle=`; 0 cautious, 1 moderate, 2 reckless, 3 vreckless): {100, 90, 60, 15}.
+#     Cargo amount, cargo value and smuggling are NOT part of the roll.  If your IFF is on it is forced to 2%; beyond 120 units it
 #     is cut to two thirds, beyond 180 units to 5%.
 #   * If the civilian's own sensors hold a weapon contact within 100 units, the
 #     chance becomes table*1.5 (max 100).  Otherwise a failed roll says "We'll
@@ -2193,7 +2194,7 @@ def fix_pds_target_everything(data, pe, ptch_va, ptch_off, cave_cursor, server=F
 #     with any ship whose list contains you.  So after one demand, answered or
 #     not, you can never hail that ship again.
 # What this variant changes:
-#   1. dropCargoChance {100, 90, 60, 15} -> {100, 100, 90, 60}
+#   1. dropCargoChance {100, 90, 60, 15} -> {100, 90, 70, 35} (reckless +10, vreckless +20)
 #   2. a torpedo/probe/mine YOU launched that is still in flight within 250 units
 #      of the civilian counts as seen, whatever the civilian's sensors say
 #   3. the registration is no longer added to that list, so you can hail again
@@ -2212,7 +2213,7 @@ CIVILIAN_TORPEDO_CAVE = bytes.fromhex(
 CIVILIAN_TORPEDO_FIXUPS = [(0x94, "SEEN"), (0xa1, "CONTINUE")]
 
 CIV_CHANCE_STOCK = (100, 90, 60, 15)
-CIV_CHANCE_NEW = (100, 100, 90, 60)
+CIV_CHANCE_NEW = (100, 90, 70, 35)
 
 
 def fix_civilians_comply(data, pe, ptch_va, ptch_off, cave_cursor, server=False):
