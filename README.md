@@ -524,6 +524,23 @@ before:
   `hasmenu=true`; that is now cleared so all three ships match (Ceres III
   never set it) and no dead help/log buttons are shown. (Mod-only fix, no
   exe patch needed.)
+- **Docking in a stand-alone scenario overwrites save slot 1** - the game's
+  save routine only checked that the scenario's mode was "full". Convoy Attack,
+  Survival, Stealth, Escape, Defend, the quickstart and other stand-alone
+  scenarios are also "full", so docking or jumping in any of them auto-saved over
+  your campaign. Only the story scenario (whose description says it "auto-saves
+  whenever you dock/undock or use a jumpgate") saves now. Side effect: statistics
+  from other scenarios are no longer stored at those moments. (Exe patch, client only.)
+- **A torpedo whose target dies picks the nearest thing instead** - when the
+  ship a torpedo is homing on is destroyed or removed (for example by another
+  torpedo), the game clears the torpedo's target, and the torpedo's homing code
+  treats "no target" as "go and find one": it locks onto the nearest sensor
+  contact, which can be a station, another weapon or your own ship. Now a torpedo
+  that loses its target this way does not look for a new one and stops steering and
+  thrusting, so it drifts on. You can still re-target it from the weapon terminal (by
+  target or by a position) and it homes again. A torpedo fired without any target
+  still behaves as before, and the proximity fuse still works, so a drifting torpedo can
+  still go off if something flies close to it. (Exe patch, client and server.)
 - **Spelling and grammar in the game's text** — about 450 corrections
   across roughly 320 text files (news articles, dialogue, emails, info
   pages): misspellings such as "manouvres", "scavanging", "tarrifs" and
@@ -587,6 +604,110 @@ before:
   button and out of line with the JUMP button above it. Moved back.
   (Mod-only fix, no exe patch needed.)
 
+## Optional variant: a point-defence system that works (`--pds-everything`)
+
+This is **not a bug fix and is off by default.** It changes gameplay balance, so
+it is a separate opt-in rather than part of the standard patch.
+
+```
+python ois_patcher.py --pds-everything
+```
+
+**Why the stock PDS never stops a torpedo.** From the decompiled code, in order of
+importance:
+
+1. **The shot does nothing to a torpedo.** The PDS "hits" by calling the same
+   `Ship::damage` routine used for ships, and that routine returns immediately for
+   vessel type 4 (torpedoes, probes, mines). Torpedoes can be *selected* but never
+   *hurt*. That is the real bug.
+2. **It only picks the first thing in range.** Selection walks the sector's vessel
+   list and returns the first one that has its IFF transponder off or is a weapon,
+   so a nearer no-IFF ship wins over an incoming torpedo.
+3. **Even when it can hurt something it usually misses.** It must roll a 1 on the
+   module's hit dice (`hitchance=1d6` on the PDL 101), once per reload.
+
+**What the variant changes**
+
+- Targets, in priority order: **hostile torpedoes, probes and mines** first, then
+  **every ordinary ship regardless of IFF**, then **enemy countermeasure decoys**.
+- Never targeted: **space stations and jump gates**, **ships that are docked**,
+  **your own ship**, and **your own torpedoes/probes/mines/decoys**.
+- A locked torpedo is simply destroyed (no hit roll, and no warhead blast at
+  point-blank range). Ships still take the stock heat damage and still need the hit
+  roll; a destroyed decoy's timer is expired so the game removes it.
+- It applies to `ois.exe` **and** `ois_server.exe`, and to NPC ships' PDS modules too.
+
+**Things to know before using it**
+
+- It will fire on neutral and friendly ships in range, because that is what
+  "everything" means. Docked ships and stations are the only ship-like exceptions.
+- Throughput is still limited by the module's own range, power and reload time, so a
+  large salvo can overwhelm it.
+- The caves are emulation-tested (`tools/pds/test_pds.py`), but nobody has watched a
+  torpedo get shot down in the live game yet. Report what you see.
+- The variant is recorded in the exe's version marker (`v0.4.0+pds`). Running the
+  patcher with or without the flag later switches between the two through the normal
+  restore-and-repatch, after asking. `--uninstall` removes either.
+
+## Optional variant: civilians who give in (`--civilians-comply`)
+
+Also **not a bug fix and off by default.** It combines with `--pds-everything` (the
+exe records both: `v0.4.0+pds+civ`).
+
+```
+python ois_patcher.py --civilians-comply
+```
+
+**What the stock game does** (decompiled `ShipBehaviour::respondToPirateDemand`, run
+when you pick "Drop your cargo or be fired upon." on a hail):
+
+- A civilian rolls `rand()%100+1 <= chance`. The base chance is looked up by the
+  captain's **style** - the `captainstyle=` value in the scenario data, or a random one
+  for generated traffic: **cautious 100 %, moderate 90 %, reckless 60 %, very reckless
+  15 %**. (Style is a combat personality in the data files: how far the captain runs the
+  battery down and at what firing solution. The developers reused it here.) **The roll
+  does not look at how much cargo they carry, what it is worth, or whether they smuggle.**
+- If your **IFF is on** it is forced to **2 %** ("You realise your IFF is on?"); beyond
+  120 units it is cut to two thirds, beyond 180 units to 5 %. A very reckless captain at
+  mid range is therefore about 10 %.
+- If the civilian's *own sensors* hold a weapon contact within 100 units, the chance
+  becomes the table value x 1.5 (max 100). Otherwise a failed roll says **"We'll
+  believe it when we see a torpedo."** - whether or not you have just fired one that
+  the civilian cannot see yet.
+- The first thing it does is add your registration to a list kept on the civilian.
+  `PrivateCommsManager::switchTo` refuses to open a conversation with any ship whose
+  list contains you, so after **one** demand - complied with or not - **you can never
+  hail that ship again.**
+- When a civilian does comply it jettisons one random non-empty pod. With an empty hold
+  it still says "We are complying" and drops nothing.
+
+**What the variant changes**
+
+1. The chance table becomes **cautious 100 %, moderate 90 %, reckless 70 %, very
+   reckless 35 %** (reckless +10, very reckless +20; the two cautious tiers are already
+   near-certain and are left alone).
+2. A torpedo, probe or mine **you launched that is still in flight within 250 units**
+   of the civilian counts as "seen", whatever the civilian's sensors say, so it gets
+   the x 1.5 boost instead of the "believe it when we see a torpedo" refusal.
+3. Your registration is **no longer added to the civilian's list**, so you can keep
+   hailing it (and demanding again).
+
+Unchanged: the dice, the IFF-on rule and distance penalties, pirates, authorities,
+and everything about NPC ships that are not civilians. Applies to `ois.exe` and
+`ois_server.exe`.
+
+**Things to know**
+
+- An earlier build of this variant used 100/100/90/60, which made nearly every
+  civilian comply; this is the toned-down version.
+- A torpedo that has already hit, been shot down or timed out does not count; only one
+  still in flight does. With your IFF on and no torpedo near, the chance is still 2 %.
+- Being able to re-hail means you can demand repeatedly and strip a civilian's cargo
+  pods one by one. That is the point, but it is more generous than the stock design.
+- Making the chance depend on cargo amount, value or smuggling would be a new mechanic
+  rather than a tweak; it is not in this variant.
+- Tested in a CPU emulator (`tools/civ/test_civ.py`), not yet seen in the live game.
+
 ## Limitations
 
 Only tested against the **Windows Steam** build of `ois.exe` and
@@ -625,6 +746,10 @@ non-commercial purposes, as long as you credit the original author
 
 ### 0.4.0 - 2026-10-03
 
+- **New fix:** a torpedo whose target is destroyed before impact no longer re-targets the nearest contact (a station, another weapon or you); it drifts, and can be re-targeted by hand (exe, client and server).
+- **New fix:** docking or jumping in a stand-alone (non-story) scenario no longer auto-saves over save slot 1. Only the story scenario saves (exe).
+- **New optional variant, off by default:** `--civilians-comply` makes civilians give in to a cargo demand far more readily (chance by captain style 100/90/60/15 % -> 100/90/70/35 %), counts your own torpedo still in flight as a credible threat, and no longer locks you out of hailing a civilian after one demand. See "Optional variant: civilians who give in" above.
+- **New optional variant, off by default:** `--pds-everything` makes the point-defence system shoot torpedoes, probes, decoys and ships regardless of IFF, and actually destroy torpedoes (the stock PDS can select a torpedo but its shot has no effect on one). See "Optional variant" above for what it does and does not shoot.
 - **New fix (Fix 22):** module purchase emails were never sent. Buying a
   module from Mechanixx now queues its welcome email for your next comms
   sync, and the shared category emails name their own maker and model
