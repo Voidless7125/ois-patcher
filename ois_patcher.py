@@ -332,7 +332,7 @@ def add_ptch_section(data):
     sec_hdr_off = ptch_section.get_file_offset()
     pe2.close()
 
-    CAVE_FILE_SIZE = 0x800 if PDS_VARIANT else 0x400   # the PDS variant's caves need more room
+    CAVE_FILE_SIZE = 0x800 if (PDS_VARIANT or CIV_VARIANT) else 0x400   # the optional variants' caves need more room
     new_raw_data_offset = len(data)
     if new_raw_data_offset % file_align != 0:
         data.extend(b"\x00" * (file_align - (new_raw_data_offset % file_align)))
@@ -2044,20 +2044,33 @@ COUNTERMEASURE_FIXUPS = [(0x7, "EFFICIENCY"), (0xf8, "AFTER_SHOT"), (0x100, "NO_
 
 
 
+# Optional variants are recorded in the version marker as "+tag" suffixes
+# (e.g. "0.4.0+pds+civ"), so a later run can tell which flavour is installed.
 PDS_VARIANT_TAG = "+pds"
-
-
-def enable_pds_variant():
-    """Marks this run as the PDS variant.  The tag goes into the version marker
-    embedded in the patched exe, so a later run knows which flavour is
-    installed and swapping between them goes through restore-and-repatch."""
-    global PATCHER_VERSION, PDS_VARIANT
-    if not PDS_VARIANT:
-        PDS_VARIANT = True
-        PATCHER_VERSION = PATCHER_VERSION + PDS_VARIANT_TAG
-
-
+CIV_VARIANT_TAG = "+civ"
+BASE_VERSION = PATCHER_VERSION
 PDS_VARIANT = False
+CIV_VARIANT = False
+
+
+def enable_variants(pds=False, civ=False):
+    """Selects the optional variants for this run and rebuilds the version string.
+    The tags always come out in the same order, so the string is canonical."""
+    global PATCHER_VERSION, PDS_VARIANT, CIV_VARIANT
+    PDS_VARIANT, CIV_VARIANT = bool(pds), bool(civ)
+    PATCHER_VERSION = BASE_VERSION + (PDS_VARIANT_TAG if PDS_VARIANT else "") + (CIV_VARIANT_TAG if CIV_VARIANT else "")
+
+
+def variants_of(version):
+    """'0.4.0+pds+civ' -> '+pds+civ' ('' for a standard build or no marker)."""
+    version = version or ""
+    return version[version.index("+"):] if "+" in version else ""
+
+
+def describe_variants(tags):
+    names = {PDS_VARIANT_TAG: "PDS variant", CIV_VARIANT_TAG: "civilian-demands variant"}
+    found = [names[t] for t in (PDS_VARIANT_TAG, CIV_VARIANT_TAG) if t in tags]
+    return " + ".join(found) if found else "standard build"
 
 
 def _rel32_target(data, pe, va, opcode_len):
@@ -2154,6 +2167,110 @@ def fix_pds_target_everything(data, pe, ptch_va, ptch_off, cave_cursor, server=F
     write(ROLL_SITE, b"\xE9" + struct.pack("<i", roll_va - (ROLL_SITE + 5)) + b"\x90" * 5)
     write(DAMAGE_SITE, b"\x50\xE8" + struct.pack("<i", damage_va - (DAMAGE_SITE + 6)))
     write(CM_SITE, b"\x0F\x84" + struct.pack("<i", cm_va - (CM_SITE + 6)))
+
+    print(f"  [OK] {label}")
+    applied.append(label)
+    return cave_cursor
+
+
+
+# ============================================================
+# OPTIONAL VARIANT (--civilians-comply): civilians give in to a cargo demand far
+# more readily, and can be hailed again afterwards.  Not applied by default.
+#
+# From the decompiled ShipBehaviour::respondToPirateDemand (called when you pick
+# "Drop your cargo or be fired upon." on a hail):
+#   * A civilian (craft purpose 1) rolls rand()%100+1 <= chance.  The base chance
+#     comes from the table `dropCargoChance`, indexed by the ship's tier 0..3:
+#     {100, 90, 60, 15}.  If your IFF is on it is forced to 2%; beyond 120 units it
+#     is cut to two thirds, beyond 180 units to 5%.
+#   * If the civilian's own sensors hold a weapon contact within 100 units, the
+#     chance becomes table*1.5 (max 100).  Otherwise a failed roll says "We'll
+#     believe it when we see a torpedo." -- even if you have just fired one the
+#     civilian cannot see yet.
+#   * The first thing the function does is add your registration to a list on the
+#     civilian ship; PrivateCommsManager::switchTo refuses to open a conversation
+#     with any ship whose list contains you.  So after one demand, answered or
+#     not, you can never hail that ship again.
+# What this variant changes:
+#   1. dropCargoChance {100, 90, 60, 15} -> {100, 100, 90, 60}
+#   2. a torpedo/probe/mine YOU launched that is still in flight within 250 units
+#      of the civilian counts as seen, whatever the civilian's sensors say
+#   3. the registration is no longer added to that list, so you can hail again
+# The rolls, the IFF-on rule, the distance penalties and everything pirates and
+# authorities do are untouched.  Client and server share the layout.
+# ============================================================
+
+CIVILIAN_TORPEDO_CAVE = bytes.fromhex(
+    "8b45088b402485c00f848a0000008bb8cc0000008b98d00000008b4e6cf20f10"
+    "6128660f5ae4f20f106930660f5aedb800247447660f6ec839df745c8b0f83c7"
+    "048b815402000085c074ed83b8580100000475e48b450839819c03000075d980"
+    "b9cc0300000075d0f20f105128660f5ad2f20f105930660f5adbf30f5cd4f30f"
+    "5cddf30f59d2f30f59dbf30f58d30f2fca72a5e9be4de0ff8b5decbf64000000"
+    "e9174de0ff"
+)
+CIVILIAN_TORPEDO_FIXUPS = [(0x94, "SEEN"), (0xa1, "CONTINUE")]
+
+CIV_CHANCE_STOCK = (100, 90, 60, 15)
+CIV_CHANCE_NEW = (100, 100, 90, 60)
+
+
+def fix_civilians_comply(data, pe, ptch_va, ptch_off, cave_cursor, server=False):
+    label = "Civilian demand variant: civilians comply more, and can be hailed again" + (" (server)" if server else "")
+    applied, skipped = (SERVER_FIXES_APPLIED, SERVER_FIXES_SKIPPED) if server else (FIXES_APPLIED, FIXES_SKIPPED)
+
+    def bail():
+        skipped.append(label)
+        return cave_cursor
+
+    FUNC = 0x005043F0 if server else 0x00504B10          # ShipBehaviour::respondToPirateDemand
+    # ---- 3. the "blocked from hailing" list ------------------------------------------------
+    LIST_SITE, LIST_REJOIN = FUNC + 0x48, FUNC + 0x7D
+    list_head = bytes.fromhex("8B88600300008D97380200008955D0523988640300007411")
+    if verify_site(data, pe, LIST_SITE, list_head, label + " (blocked-hail list)") is None:
+        return bail()
+    if verify_site(data, pe, LIST_REJOIN, bytes.fromhex("F20F104F28"), label + " (after the list)") is None:
+        return bail()
+    # ---- 1. the chance table ----------------------------------------------------------------
+    if verify_site(data, pe, FUNC + 0x11E, bytes.fromhex("8B0C85"), label + " (chance lookup)") is None:
+        return bail()
+    table_va = struct.unpack_from("<I", data, va_to_offset(pe, FUNC + 0x11E) + 3)[0]
+    table_off = va_to_offset(pe, table_va)
+    if table_off is None or struct.unpack_from("<4I", data, table_off) != CIV_CHANCE_STOCK:
+        print(f"  [SKIP] {label}: dropCargoChance table is not the expected {CIV_CHANCE_STOCK}")
+        return bail()
+    # ---- 2. torpedo-in-flight check ---------------------------------------------------------
+    EXIT_SITE, SEEN, CONTINUE = FUNC + 0x2A4, FUNC + 0x346, FUNC + 0x2AC
+    if verify_site(data, pe, EXIT_SITE, bytes.fromhex("8B5DECBF64000000"), label + " (after sensor scan)") is None:
+        return bail()
+    if verify_site(data, pe, SEEN, bytes.fromhex("8B4674BF6400"), label + " (torpedo seen)") is None:
+        return bail()
+    if verify_site(data, pe, CONTINUE, bytes.fromhex("837E7001"), label + " (roll)") is None:
+        return bail()
+
+    for site, length in ((LIST_SITE, LIST_REJOIN - LIST_SITE), (EXIT_SITE, 8)):
+        neutralize_relocations(data, pe, site, length, label)
+
+    # 1. chance table (plain data)
+    struct.pack_into("<4I", data, table_off, *CIV_CHANCE_NEW)
+
+    # 2. cave
+    symbols = {"SEEN": SEEN, "CONTINUE": CONTINUE}
+    cave_va = ptch_va + cave_cursor
+    body = bytearray(CIVILIAN_TORPEDO_CAVE)
+    for pos, name in CIVILIAN_TORPEDO_FIXUPS:
+        struct.pack_into("<i", body, pos, symbols[name] - (cave_va + pos + 4))
+    data[ptch_off + cave_cursor: ptch_off + cave_cursor + len(body)] = body
+    cave_cursor += len(body)
+    off = va_to_offset(pe, EXIT_SITE)
+    data[off:off + 8] = b"\xE9" + struct.pack("<i", cave_va - (EXIT_SITE + 5)) + b"\x90" * 3
+
+    # 3. keep the "who demanded" bookkeeping the rest of the function needs (the registration
+    #    pointer in [EBP-0x30]) but skip adding it to the civilian's list
+    off = va_to_offset(pe, LIST_SITE)
+    patch = bytes.fromhex("8D973802000089" "55D0")          # LEA EDX,[EDI+0x238] / MOV [EBP-0x30],EDX
+    patch += b"\xEB" + bytes([LIST_REJOIN - (LIST_SITE + len(patch) + 2)])
+    data[off:off + (LIST_REJOIN - LIST_SITE)] = patch + b"\x90" * (LIST_REJOIN - LIST_SITE - len(patch))
 
     print(f"  [OK] {label}")
     applied.append(label)
@@ -2289,6 +2406,8 @@ def patch_server_exe(exe_path):
     fix_pirate_hunt_format_string_server(data, pe)
     if PDS_VARIANT:
         cave_cursor = fix_pds_target_everything(data, pe, ptch_va, ptch_off, cave_cursor, server=True)
+    if CIV_VARIANT:
+        cave_cursor = fix_civilians_comply(data, pe, ptch_va, ptch_off, cave_cursor, server=True)
     pe.close()
 
     if cave_cursor > ptch_size:
@@ -2889,8 +3008,9 @@ def print_status(game_dir):
             backup_note = "  [backup: none]"
         print(f"  {name:<16} {status.describe()}{backup_note}")
         if status.state == STATE_PATCHED and status.version != PATCHER_VERSION:
-            if (status.version or "").endswith(PDS_VARIANT_TAG):
-                print(f"  {'':<16} -> PDS variant installed; re-run with --pds-everything to keep it")
+            if variants_of(status.version):
+                print(f"  {'':<16} -> {describe_variants(variants_of(status.version))} installed; "
+                      f"re-run with the same --pds-everything / --civilians-comply options to keep it")
             else:
                 print(f"  {'':<16} -> run this script with no arguments to update it to v{PATCHER_VERSION}")
     mod_dir = game_dir.joinpath(*MOD_DIR_RELATIVE)
@@ -3080,11 +3200,10 @@ def prepare_for_patch(client_exe, force=False, assume_yes=False):
         print(f"\n--force: re-patching (nothing to restore -- {client_exe.name} isn't currently patched).")
     else:
         print(f"\nThis install was patched by {label}; this script is v{PATCHER_VERSION}.")
-        if (client.version or "").endswith(PDS_VARIANT_TAG) and not PDS_VARIANT:
-            print("Note: the installed build has the optional PDS variant. Continuing WITHOUT "
-                  "--pds-everything replaces it with the standard build.")
-        elif PDS_VARIANT and not (client.version or "").endswith(PDS_VARIANT_TAG):
-            print("Note: --pds-everything is replacing the standard build with the PDS variant.")
+        have, want = variants_of(client.version), variants_of(PATCHER_VERSION)
+        if have != want:
+            print(f"Note: the installed build is the {describe_variants(have)}; this run installs the "
+                  f"{describe_variants(want)}.")
         print("Updating means restoring the original exe(s) from their backups and applying")
         print("the current fixes to them. Save games and settings are not involved.")
 
@@ -3257,6 +3376,11 @@ def main():
                              "regardless of IFF -- never stations, gates, docked ships or your "
                              "own weapons). Also makes it actually destroy torpedoes. Installing "
                              "or removing it later goes through the normal restore-and-repatch.")
+    parser.add_argument("--civilians-comply", action="store_true",
+                        help="OPTIONAL VARIANT, not a bug fix: civilians are far more willing to drop "
+                             "cargo when you demand it, a torpedo of yours that is still in flight now "
+                             "counts as a credible threat, and a civilian you have demanded cargo from "
+                             "can be hailed again.")
     parser.add_argument("--uninstall", action="store_true",
                         help="Restore the original exe(s) from their .original-backup files "
                              "and remove the bugfix mod, then exit.")
@@ -3275,8 +3399,7 @@ def main():
                         help="With --uninstall, leave the .original-backup files in place "
                              "instead of deleting them after a verified restore.")
     args = parser.parse_args()
-    if args.pds_everything:
-        enable_pds_variant()
+    enable_variants(pds=args.pds_everything, civ=args.civilians_comply)
 
     if args.list_installs:
         found = find_game_dirs()
@@ -3407,6 +3530,8 @@ def main():
     cave_cursor = fix_module_purchase_email(data, pe, ptch_va, ptch_off, cave_cursor)
     if PDS_VARIANT:
         cave_cursor = fix_pds_target_everything(data, pe, ptch_va, ptch_off, cave_cursor)
+    if CIV_VARIANT:
+        cave_cursor = fix_civilians_comply(data, pe, ptch_va, ptch_off, cave_cursor)
     pe.close()
 
     if cave_cursor > ptch_size:
