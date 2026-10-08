@@ -40,6 +40,9 @@ SOURCES["filter"] = f"""
     je      weapons
     test    eax, eax                      # flag 1: ordinary ships only (never stations / gates)
     jne     {GSWD_SKIP}
+    mov     eax, [ecx+0x40]
+    cmp     byte ptr [eax+0x34], 0        # IFF transponder on: friendly / neutral, leave it alone
+    jne     {GSWD_SKIP}
     cmp     dword ptr [ecx+0xd4], 3       # not one that is docked
     jne     {GSWD_PASS}
     cmp     dword ptr [ecx+0xf8], 2

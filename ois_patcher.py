@@ -2126,9 +2126,9 @@ def fix_torpedo_lost_target(data, pe, ptch_va, ptch_off, cave_cursor, server=Fal
 #   3. Even where it works, it must roll 1 on the module's hit dice (1d6 on a
 #      PDL 101) once per reload.
 # What this variant changes:
-#   * selection: weapons first (never your own), then every ordinary ship
-#     regardless of IFF -- never stations or jump gates, never a ship that is
-#     docked, never yourself
+#   * selection: weapons first (never your own), then ordinary ships whose IFF
+#     transponder is OFF -- never ships with IFF on, stations or jump gates, never
+#     a ship that is docked, never yourself
 #   * a locked torpedo/probe/mine is destroyed (no hit roll, no warhead blast);
 #     ships still take the stock heat damage and still need the hit roll
 #   * enemy countermeasure decoys (not your own) are shot when nothing else is
@@ -2140,11 +2140,11 @@ def fix_torpedo_lost_target(data, pe, ptch_va, ptch_off, cave_cursor, server=Fal
 
 FILTER_CAVE = bytes.fromhex(
     "84db0f84a76ddaff8b815402000085c00f84216edaff8b805801000080fb0274"
-    "2785c00f850e6edaff83b9d4000000030f85796ddaff83b9f8000000020f84f4"
-    "6ddaffe9676ddaff83f8040f85e66ddaff80b9cc030000000f85d96ddaff8b81"
-    "9c0300003b450c0f84ca6ddaffe93d6ddaff"
+    "3485c00f850e6edaff8b4140807834000f85016edaff83b9d4000000030f856c"
+    "6ddaff83b9f8000000020f84e76ddaffe95a6ddaff83f8040f85d96ddaff80b9"
+    "cc030000000f85cc6ddaff8b819c0300003b450c0f84bd6ddaffe9306ddaff"
 )
-FILTER_FIXUPS = [(0x4, "PASS"), (0x12, "SKIP"), (0x25, "SKIP"), (0x32, "PASS"), (0x3f, "SKIP"), (0x44, "PASS"), (0x4d, "SKIP"), (0x5a, "SKIP"), (0x69, "SKIP"), (0x6e, "PASS")]
+FILTER_FIXUPS = [(0x4, "PASS"), (0x12, "SKIP"), (0x25, "SKIP"), (0x32, "SKIP"), (0x3f, "PASS"), (0x4c, "SKIP"), (0x51, "PASS"), (0x5a, "SKIP"), (0x67, "SKIP"), (0x76, "SKIP"), (0x7b, "PASS")]
 
 SELECT_CAVE = bytes.fromhex(
     "83ec04f30f111424ff742418ff7424186a02ff742418ff742418f30f10542414"
@@ -3511,7 +3511,7 @@ def main():
     parser.add_argument("--pds-everything", action="store_true",
                         help="OPTIONAL VARIANT, not a bug fix: the point-defence system shoots "
                              "everything in range (torpedoes, probes, enemy decoys, and ships "
-                             "regardless of IFF -- never stations, gates, docked ships or your "
+                             "with their IFF off -- never ships with IFF on, stations, gates, docked ships or your "
                              "own weapons). Also makes it actually destroy torpedoes. Installing "
                              "or removing it later goes through the normal restore-and-repatch.")
     parser.add_argument("--civilians-comply", action="store_true",

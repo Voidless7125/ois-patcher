@@ -259,11 +259,12 @@ def main():
     station = emu.make_ship(sec, 101.0, 100.0, vtype=1, iff_on=True)
     docked = emu.make_ship(sec, 100.5, 100.0, docked=True)
     trader = emu.make_ship(sec, 103.0, 100.0, iff_on=True, rego="Trader")
+    no_iff = emu.make_ship(sec, 102.0, 100.0, iff_on=False, rego="Dark")
     far_ship = emu.make_ship(sec, 190.0, 100.0, iff_on=False)
     own_torp = emu.make_ship(sec, 100.2, 100.0, vtype=4, launcher=me)
     dead_torp = emu.make_ship(sec, 100.3, 100.0, vtype=4, launcher=0x1234, destroyed=True)
     enemy_torp = emu.make_ship(sec, 104.0, 100.0, vtype=4, launcher=0x1234)
-    emu.ships = [me, station, docked, trader, far_ship, own_torp, dead_torp, enemy_torp]
+    emu.ships = [me, station, docked, trader, no_iff, far_ship, own_torp, dead_torp, enemy_torp]
     emu.commit()
 
     def pick(flag_sel=True, rng=5.0, excl=None):
@@ -282,11 +283,11 @@ def main():
     emu.ships.remove(enemy_torp)
     emu.commit()
     got, _ = pick()
-    check("then a ship with IFF on (never the station, the docked ship, or own torpedo)", got == trader, f"got {got:#x}")
-    emu.ships.remove(trader)
+    check("then a ship with its IFF off (not the nearer one with IFF on, the station, the docked ship or own torpedo)", got == no_iff, f"got {got:#x}")
+    emu.ships.remove(no_iff)
     emu.commit()
     got, _ = pick()
-    check("nothing else qualifies in range (station, docked, own and destroyed weapons, far ship)", got == 0, f"got {got:#x}")
+    check("nothing else qualifies in range (IFF-on ship, station, docked, own and destroyed weapons, far ship)", got == 0, f"got {got:#x}")
     got, _ = pick(rng=100.0)
     check("a larger range reaches the far ship", got == far_ship, f"got {got:#x}")
 

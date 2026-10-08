@@ -629,8 +629,8 @@ importance:
 **What the variant changes**
 
 - Targets, in priority order: **hostile torpedoes, probes and mines** first, then
-  **every ordinary ship regardless of IFF**, then **enemy countermeasure decoys**.
-- Never targeted: **space stations and jump gates**, **ships that are docked**,
+  **ordinary ships whose IFF transponder is off**, then **enemy countermeasure decoys**.
+- Never targeted: **ships with their IFF on**, **space stations and jump gates**, **ships that are docked**,
   **your own ship**, and **your own torpedoes/probes/mines/decoys**.
 - A locked torpedo is simply destroyed (no hit roll, and no warhead blast at
   point-blank range). Ships still take the stock heat damage and still need the hit
@@ -639,8 +639,8 @@ importance:
 
 **Things to know before using it**
 
-- It will fire on neutral and friendly ships in range, because that is what
-  "everything" means. Docked ships and stations are the only ship-like exceptions.
+- It leaves ships with their IFF on alone, but fires on any ship with its transponder off,
+  friendly or not. Docked ships and stations are also left alone.
 - Throughput is still limited by the module's own range, power and reload time, so a
   large salvo can overwhelm it.
 - The caves are emulation-tested (`tools/pds/test_pds.py`), but nobody has watched a
@@ -749,7 +749,7 @@ non-commercial purposes, as long as you credit the original author
 - **New fix:** a torpedo whose target is destroyed before impact no longer re-targets the nearest contact (a station, another weapon or you); it drifts, and can be re-targeted by hand (exe, client and server).
 - **New fix:** docking or jumping in a stand-alone (non-story) scenario no longer auto-saves over save slot 1. Only the story scenario saves (exe).
 - **New optional variant, off by default:** `--civilians-comply` makes civilians give in to a cargo demand far more readily (chance by captain style 100/90/60/15 % -> 100/90/70/35 %), counts your own torpedo still in flight as a credible threat, and no longer locks you out of hailing a civilian after one demand. See "Optional variant: civilians who give in" above.
-- **New optional variant, off by default:** `--pds-everything` makes the point-defence system shoot torpedoes, probes, decoys and ships regardless of IFF, and actually destroy torpedoes (the stock PDS can select a torpedo but its shot has no effect on one). See "Optional variant" above for what it does and does not shoot.
+- **New optional variant, off by default:** `--pds-everything` makes the point-defence system shoot torpedoes, probes, decoys and ships with their IFF off (never ships with IFF on), and actually destroy torpedoes (the stock PDS can select a torpedo but its shot has no effect on one). See "Optional variant" above for what it does and does not shoot.
 - **New fix (Fix 22):** module purchase emails were never sent. Buying a
   module from Mechanixx now queues its welcome email for your next comms
   sync, and the shared category emails name their own maker and model
