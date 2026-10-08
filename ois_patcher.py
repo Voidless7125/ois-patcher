@@ -2460,6 +2460,35 @@ def fix_autopilot_overshoot(data, pe, ptch_va, ptch_off, cave_cursor, server=Fal
     return cave_cursor
 
 
+def fix_nav_jump_range_efficiency(data, pe, ptch_va, ptch_off, cave_cursor):
+    label = "Nav map: sector distance ignores a jump drive above 100% efficiency"
+    SITE, OK, TOO_FAR, GET_RANGE = 0x00583012, 0x00583023, 0x00583021, 0x004AE800
+    # The "Dist." line for the selected sector is blue if the sector is within jump range and red if not.
+    # It compared the distance with the drive class's base range ([class+0x104]); the game's real range
+    # (ShipModule::getCurrentJumpRange, used by the Set Dest. button and the jump itself) is that range
+    # times the drive's efficiency, so a drive above 100% was shown as out of range for sectors it can reach.
+    if verify_site(data, pe, SITE, bytes.fromhex("8B40148B40080F2F9804010000" "7602" "32DB"), label) is None \
+            or verify_site(data, pe, GET_RANGE, bytes.fromhex("568BF18B46048B4814"), label + " (getCurrentJumpRange)") is None:
+        FIXES_SKIPPED.append(label)
+        return cave_cursor
+    neutralize_relocations(data, pe, SITE, 15, label)
+    cave_va = ptch_va + cave_cursor
+    c = bytearray(bytes.fromhex("8B4814"))                       # ECX = jump module ([SystemManager+0x14])
+    c += bytes.fromhex("83EC04" "F30F111C24")                    # keep XMM3 (the distance) across the call
+    c += b"\xE8" + struct.pack("<i", GET_RANGE - (cave_va + len(c) + 5))
+    c += bytes.fromhex("F30F101C24" "83C404")                    # restore XMM3
+    c += bytes.fromhex("0F2FD8")                                 # COMISS XMM3,XMM0   (distance vs real range)
+    c += b"\x0F\x86" + struct.pack("<i", OK - (cave_va + len(c) + 6))        # JBE in range
+    c += b"\xE9" + struct.pack("<i", TOO_FAR - (cave_va + len(c) + 5))        # out of range
+    data[ptch_off + cave_cursor: ptch_off + cave_cursor + len(c)] = c
+    cave_cursor += len(c)
+    off = va_to_offset(pe, SITE)
+    data[off:off + 13] = b"\xE9" + struct.pack("<i", cave_va - (SITE + 5)) + b"\x90" * 8
+    print(f"  [OK] {label}")
+    FIXES_APPLIED.append(label)
+    return cave_cursor
+
+
 def _rel32_target(data, pe, va, opcode_len):
     """Absolute target of a rel32 call/jump whose opcode is `opcode_len` bytes long."""
     off = va_to_offset(pe, va)
@@ -3707,6 +3736,7 @@ def main():
     cave_cursor = fix_news_enter_without_selection(data, pe, ptch_va, ptch_off, cave_cursor)
     cave_cursor = fix_pds_panel_name_overflow(data, pe, ptch_va, ptch_off, cave_cursor)
     cave_cursor = fix_autopilot_overshoot(data, pe, ptch_va, ptch_off, cave_cursor)
+    cave_cursor = fix_nav_jump_range_efficiency(data, pe, ptch_va, ptch_off, cave_cursor)
     pe.close()
 
     if cave_cursor > ptch_size:

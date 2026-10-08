@@ -118,6 +118,35 @@ def main():
         else:
             ok = ok and not calls and emu.uc.reg_read(UC_X86_REG_ESP) == esp0 - 8
         check(f"PDS header {mfr.decode()} {name.decode()}: {want}", ok)
+    # nav map "Dist." colour: compares with the real jump range (getCurrentJumpRange), not the class range
+    NAV_SITE, NAV_OK, NAV_FAR, GET_RANGE = 0x583012, 0x583023, 0x583021, 0x4AE800
+    from unicorn.x86_const import UC_X86_REG_XMM0, UC_X86_REG_XMM3
+    rng = {"v": 0.0}
+
+    def range_stub(uc, address, size, user):
+        if address == GET_RANGE:
+            esp = uc.reg_read(UC_X86_REG_ESP)
+            uc.reg_write(UC_X86_REG_XMM0, int.from_bytes(struct.pack("<f", rng["v"]) + b"\0" * 12, "little"))
+            uc.reg_write(UC_X86_REG_XMM3, 0)               # the real function clobbers XMM3
+            uc.reg_write(UC_X86_REG_EIP, emu.r32(esp))
+            uc.reg_write(UC_X86_REG_ESP, esp + 4)
+
+    emu.uc.hook_add(UC_HOOK_CODE, range_stub, begin=GET_RANGE, end=GET_RANGE)
+    for dist, real, want in ((373.37, 250.0, "far"), (203.61, 250.0, "ok"), (300.0, 380.0, "ok"), (373.37, 373.37, "ok"), (400.0, 380.0, "far")):
+        sm = emu.alloc(0x40)
+        emu.w32(sm + 0x14, emu.alloc(0x10))
+        rng["v"] = real
+        emu.stops.clear()
+        emu.stops[NAV_OK], emu.stops[NAV_FAR] = "ok", "far"
+        emu.stopped_at = None
+        frame = tp.STACK_TOP - 0x5000
+        emu.uc.reg_write(UC_X86_REG_ESP, frame)
+        emu.uc.reg_write(UC_X86_REG_EAX, sm)
+        emu.uc.reg_write(UC_X86_REG_XMM3, int.from_bytes(struct.pack("<f", dist) + b"\0" * 12, "little"))
+        emu.uc.emu_start(NAV_SITE, 0, count=200)
+        keep = struct.unpack("<f", (emu.uc.reg_read(UC_X86_REG_XMM3) & 0xFFFFFFFF).to_bytes(4, "little"))[0]
+        check(f"nav distance {dist} vs real range {real}: {want}", emu.stopped_at == want and abs(keep - dist) < 1e-3
+              and emu.uc.reg_read(UC_X86_REG_ESP) == frame)
     print("all UI checks pass" if not bad else f"{bad} FAILED")
     sys.exit(1 if bad else 0)
 

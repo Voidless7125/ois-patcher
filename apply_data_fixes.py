@@ -328,6 +328,16 @@ FIXES = {
         (1,
          "    button=128,170,80,`!Undock,UNDOCK,CAN_UNDOCK\n",
          "    button=158,170,80,`!Undock,UNDOCK,CAN_UNDOCK\n"),
+        # The Helm Control and Orbital tabs of this console carry `linkto=helm`, which is what shows the
+        # damage static / offline state of the module; the Weapons and Cargo tabs of the same console had
+        # no link (the Weapons one is a commented-out `#linkto=weapon`), so they never showed any damage.
+        # Linked to the helm like the other tabs.
+        (1,
+         "    tabname=Weapons\n    width=256\n    height=192\n#linkto=weapon\n",
+         "    tabname=Weapons\n    width=256\n    height=192\n#linkto=weapon\n    linkto=helm\n"),
+        (1,
+         "    tabname=Cargo\n    width=256\n    height=192\n",
+         "    tabname=Cargo\n    width=256\n    height=192\n    linkto=helm\n"),
     ],
 
     # The Infopedia article list (4:3 and 16:9 screens) is 238 / 268 units
@@ -341,6 +351,36 @@ FIXES = {
         (1,
          "    selecttray=1,1,162,268,INFOPEDIA_ARTICLES\n",
          "    selecttray=1,1,162,266,INFOPEDIA_ARTICLES\n"),
+    ],
+
+    # Same for Ceres (also used by the Proxima's console) and Remora: their Weapons / Cargo tabs show the
+    # damage static of the helm like the other tabs of the console.
+    "ui_ceres.txt": [
+        (1,
+         "    tabname=Cargo\n    width=256\n    height=192\n",
+         "    tabname=Cargo\n    width=256\n    height=192\n    linkto=helm\n"),
+        (1,
+         "    shortname=c_weapons\n    tabname=Weapons\n    width=192\n    height=144\n#linkto=weapon\n",
+         "    shortname=c_weapons\n    tabname=Weapons\n    width=192\n    height=144\n#linkto=weapon\n    linkto=helm\n"),
+        (1,
+         "    shortname=c_weapons2\n    tabname=Weapons\n    width=256\n    height=192\n#linkto=weapon\n",
+         "    shortname=c_weapons2\n    tabname=Weapons\n    width=256\n    height=192\n#linkto=weapon\n    linkto=helm\n"),
+    ],
+    "ui_remora.txt": [
+        (1,
+         "    tabname=Cargo\n    width=256\n    height=192\n",
+         "    tabname=Cargo\n    width=256\n    height=192\n    linkto=helm\n"),
+    ],
+
+    # The Remora-only modules (remorareact, remorasensor) are in modules_npc.txt.  The shop stock generator
+    # (TradeLocation::addRandomModules) only picks module classes with a basevalue of at least 1.  The Remora
+    # sensor is already basevalue=0 (never sold), but the Remora RCS has basevalue=2505, so it could turn up
+    # in shops, cheap and better than the shop RCS units.  Set to 0 like the sensor: the module stays and the
+    # Remora keeps it, it just is not sold.
+    "modules_npc.txt": [
+        (1,
+         "    basevalue=2505\n",
+         "    basevalue=0\n"),
     ],
 
     # BUG-032: the Comms Download / Sync terminal is a square (192x192)
