@@ -60,7 +60,7 @@ TEXT_FIXES = {
     'd38_samkasrils.txt': [
         (1, 'position to use this warheads to build defensive', 'position to use these warheads to build defensive'),
         (1, 'on any staiton. You know about', 'on any station. You know about'),
-        (1, "W on them. The're a trading terminal we use for less", "W on them. There's a trading terminal we use for less"),
+        (1, "W on them. The're a trading terminal we use for less", "W on them. They're a trading terminal we use for less"),
         (1, 'for these wareheads will be Zhou', 'for these warheads will be Zhou'),
     ],
     'dac_emiliafalzon.txt': [
