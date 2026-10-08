@@ -330,6 +330,19 @@ FIXES = {
          "    button=158,170,80,`!Undock,UNDOCK,CAN_UNDOCK\n"),
     ],
 
+    # The Infopedia article list (4:3 and 16:9 screens) is 238 / 268 units
+    # tall but its rows are 8 units high and start 2 units down, so the last
+    # row is cut in half at the bottom (the next entry's top edge shows
+    # under "Point Defence Lasers").  Trimmed to a whole number of rows.
+    "ui.txt": [
+        (1,
+         "    selecttray=1,1,162,238,INFOPEDIA_ARTICLES\n",
+         "    selecttray=1,1,162,234,INFOPEDIA_ARTICLES\n"),
+        (1,
+         "    selecttray=1,1,162,268,INFOPEDIA_ARTICLES\n",
+         "    selecttray=1,1,162,266,INFOPEDIA_ARTICLES\n"),
+    ],
+
     # BUG-032: the Comms Download / Sync terminal is a square (192x192)
     # screen. The game only builds its log and "?" help pages for 4:3 and
     # 16:9 screens (the only help/log layouts that exist), so on a square
