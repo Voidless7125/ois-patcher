@@ -2110,6 +2110,79 @@ def fix_torpedo_lost_target(data, pe, ptch_va, ptch_off, cave_cursor, server=Fal
     return cave_cursor
 
 
+def fix_power_drain_modifier(data, pe, ptch_va, ptch_off, cave_cursor, server=False):
+    label = "Power drain: component power modifiers ignored, active modules counted twice" + (" (server)" if server else "")
+    applied, skipped = (SERVER_FIXES_APPLIED, SERVER_FIXES_SKIPPED) if server else (FIXES_APPLIED, FIXES_SKIPPED)
+
+    def bail():
+        skipped.append(label)
+        return cave_cursor
+
+    if server:
+        TOTAL, CURRENT, DRAIN, MODIFIER, DRAW = 0x00522BE0, 0x004AE1B0, 0x004AE120, 0x00438020, 0x00521A50
+    else:
+        TOTAL, CURRENT, DRAIN, MODIFIER, DRAW = 0x005246B0, 0x004AE2F0, 0x004AE260, 0x00438200, 0x00523520
+    # SystemManager::totalPowerDrain, ShipModule::getCurrentPowerDrain, ShipModule::drainPower,
+    # ComponentInterfaceInstance::getPowerModifier, SystemManager::drawPower
+    for va, head, what in ((TOTAL, "568B714033C0578B793C0F57C92BF7C1FE0285F6", "totalPowerDrain"),
+                           (CURRENT, "558BEC83EC08807963007507", "getCurrentPowerDrain"),
+                           (DRAIN, "558BEC83E4F851568BF1807E6300", "drainPower"),
+                           (MODIFIER, "558BEC83EC0C8B11", "getPowerModifier")):
+        if verify_site(data, pe, va, bytes.fromhex(head), f"{label} ({what})") is None:
+            return bail()
+    CALLS = (DRAIN + 0x4A, DRAIN + 0x72)                       # the two `CALL drawPower` in drainPower
+    for va in CALLS:
+        if verify_site(data, pe, va, b"\xE8", f"{label} (draw call)") is None or _rel32_target(data, pe, va, 1) != DRAW:
+            print(f"  [SKIP] {label}: drainPower does not call drawPower where expected")
+            return bail()
+    for site, length in ((TOTAL, 5), (CALLS[0], 5), (CALLS[1], 5)):
+        neutralize_relocations(data, pe, site, length, label)
+
+    def rel(cave, at, target, opcode_len):
+        return struct.pack("<i", target - (cave + at + opcode_len + 4))
+
+    cave_va = ptch_va + cave_cursor
+    # ---- totalPowerDrain: the sum of every module's own current drain (ShipModule::getCurrentPowerDrain:
+    #      nothing if switched off, the idle drain if idle, the active drain x setting if active, all
+    #      times 1 + the component power modifier) -- exactly the figures the module screens and the
+    #      terminal's POWER DRAIN list show.
+    t = bytearray(bytes.fromhex("56" "57" "53"                       # PUSH ESI / EDI / EBX
+                                "8B793C" "8B7140" "2BF7" "C1FE02"   # EDI = first module, ESI = count
+                                "83EC04" "0F57C0" "F30F110424"       # [ESP] = 0.0 (running total)
+                                "33DB"))                             # EBX = 0
+    loop = len(t)
+    t += bytes.fromhex("3BDE") + b"\x73\x00"                         # CMP EBX,ESI / JAE done
+    jae = len(t) - 1
+    t += bytes.fromhex("8B0C9F")                                     # MOV ECX,[EDI+EBX*4]
+    t += b"\xE8" + rel(cave_va, len(t), CURRENT, 1)                  # CALL getCurrentPowerDrain
+    t += bytes.fromhex("F30F580424" "F30F110424" "43")                # total += XMM0 / INC EBX
+    t += b"\xEB" + bytes([(loop - (len(t) + 2)) & 0xFF])             # JMP loop
+    t[jae] = len(t) - (jae + 1)
+    t += bytes.fromhex("F30F100424" "83C404" "5B" "5F" "5E" "C3")    # XMM0 = total / POP / RET
+    total_va = cave_va
+    cave_va += len(t)
+    # ---- drainPower: what is actually taken from the batteries also gets the (1 + modifier)
+    d = bytes.fromhex("83EC08" "F30F110C24" "51"                      # save the amount (XMM1) and ECX
+                      "8B4E0C")                                      # ECX = this->components
+    d += b"\xE8" + rel(cave_va, len(d), MODIFIER, 1)                 # CALL getPowerModifier
+    d += bytes.fromhex("59" "B8" "0000803F" "660F6ED0" "F30F58C2"     # POP ECX / XMM0 = 1 + modifier
+                       "F30F100C24" "F30F59C8" "83C408")             # XMM1 = amount * (1 + modifier)
+    d += b"\xE9" + rel(cave_va, len(d), DRAW, 1)                     # JMP drawPower
+    draw_va = cave_va
+    body = bytes(t + d)
+    data[ptch_off + cave_cursor: ptch_off + cave_cursor + len(body)] = body
+    cave_cursor += len(body)
+
+    off = va_to_offset(pe, TOTAL)
+    data[off:off + 5] = b"\xE9" + struct.pack("<i", total_va - (TOTAL + 5))
+    for va in CALLS:
+        off = va_to_offset(pe, va)
+        data[off:off + 5] = b"\xE8" + struct.pack("<i", draw_va - (va + 5))
+    print(f"  [OK] {label}")
+    applied.append(label)
+    return cave_cursor
+
+
 def _rel32_target(data, pe, va, opcode_len):
     """Absolute target of a rel32 call/jump whose opcode is `opcode_len` bytes long."""
     off = va_to_offset(pe, va)
@@ -2245,6 +2318,7 @@ def patch_server_exe(exe_path):
     cave_cursor = fix_pirate_hunt_server(data, pe, ptch_va, ptch_off, cave_cursor)
     fix_pirate_hunt_format_string_server(data, pe)
     cave_cursor = fix_torpedo_lost_target(data, pe, ptch_va, ptch_off, cave_cursor, server=True)
+    cave_cursor = fix_power_drain_modifier(data, pe, ptch_va, ptch_off, cave_cursor, server=True)
     pe.close()
 
     if cave_cursor > ptch_size:
@@ -3347,6 +3421,7 @@ def main():
     cave_cursor = fix_module_purchase_email(data, pe, ptch_va, ptch_off, cave_cursor)
     cave_cursor = fix_scenario_autosave(data, pe, ptch_va, ptch_off, cave_cursor)
     cave_cursor = fix_torpedo_lost_target(data, pe, ptch_va, ptch_off, cave_cursor)
+    cave_cursor = fix_power_drain_modifier(data, pe, ptch_va, ptch_off, cave_cursor)
     pe.close()
 
     if cave_cursor > ptch_size:
