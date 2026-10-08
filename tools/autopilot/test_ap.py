@@ -56,6 +56,26 @@ def main():
         ok = where == "back" and abs(out - want) < 1e-3 and keep == 1234.5
         bad += not ok
         print(("  PASS " if ok else "  FAIL ") + f"{name}: heading {out}")
+    # cruise burn: the drive must switch off once the speed is at the cap, even a rounding error below it
+    cruise = 0x516D50 if "server" in os.path.basename(exe).lower() else 0x517840
+    for name, speed, want in (("at the cap", 1.3, "off"), ("one float step under the cap", 1.2999999, "off"),
+                              ("a hair under (1e-6)", 1.299999, "off"), ("clearly accelerating", 1.2, "on"),
+                              ("just outside the tolerance", 1.3 - 2e-5, "on")):
+        eng = emu.alloc(0x40)
+        cls = emu.alloc(0x400)
+        emu.wf(cls + 0x108, 1.3)
+        frame = tp.STACK_TOP - 0x3500
+        emu.wf(frame - 0x14, speed)
+        emu.stops.clear()
+        emu.stops[cruise + 0x1B], emu.stops[cruise + 0x0E] = "off", "on"
+        emu.stopped_at = None
+        emu.uc.reg_write(UC_X86_REG_EBP, frame)
+        emu.uc.reg_write(UC_X86_REG_ESP, frame - 0x100)
+        emu.uc.reg_write(UC_X86_REG_EAX, cls)
+        emu.uc.emu_start(cruise, 0, count=200)
+        ok = emu.stopped_at == want
+        bad += not ok
+        print(("  PASS " if ok else "  FAIL ") + f"cruise burn, speed {name}: drive {want}")
     print("all autopilot checks pass" if not bad else f"{bad} FAILED")
     sys.exit(1 if bad else 0)
 

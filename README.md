@@ -556,12 +556,20 @@ before:
   is what shows a module's damage static and offline state, but the Weapons tab (a commented-out
   `#linkto=weapon`) and the Cargo tab had no link. They now follow the helm like the other tabs of the console.
   Side effect: with the helm unpowered or destroyed those tabs are unavailable too. (Mod only.)
-- **Remora RCS can be bought in shops** - the Remora-only modules live in `modules_npc.txt`; the shop stock
-  generator only picks modules with a `basevalue` of at least 1. The Remora sensor is already 0, the Remora RCS
-  had 2505. Set to 0 so it is not sold (the Remora keeps it). (Mod only.)
+- **NPC-only modules are sold in shops** - the game's debug log shows the Remora's RCS ("AP-RCS1", basevalue
+  2505) and the "Probe Sensor" (basevalue 1872) in station stock: the shop stock generator picks any module
+  class with a `basevalue` of at least 1, and these two had one while the rest of `modules_npc.txt` (and the
+  Remora sensor, 0) did not. Set to 0 so they are not sold; the Remora and probes keep using them. (Mod only.)
 - **Infopedia list: the last row is cut in half** - the article list is 238 (4:3) / 268 (16:9)
   units tall but its rows are 8 units high and start 2 units down, so the next entry's top edge showed
   under the last full row. The list is trimmed to a whole number of rows (234 / 266). (Mod only, no exe patch.)
+- **Autopilot keeps burning the main drive at top speed, draining the batteries** - in the "accelerate to the
+  final waypoint" state the drive is switched off when `top speed <= speed`. The speed is capped by rescaling the
+  velocity vector to exactly the top speed, but the rescaled vector's length is a float that comes out a hair
+  under the cap about every other tick, so the test fails and the drive keeps burning at the cap. A GX Delta at
+  100% draws 14 kW/s, so a long cruise empties the batteries, and a ship with no power left cannot brake for
+  its destination. The other autopilot state that does this test already allows 1e-5; this one now does too.
+  (Exe patch, client and server; applies to NPC ships as well.)
 - **Autopilot: after overshooting its destination a ship burns away from it** - when the autopilot
   brakes for its last waypoint it faces (angle to the waypoint + 180 degrees) and burns while the stopping
   distance is at least the distance left. That is a retro burn only while the ship is still heading for

@@ -372,14 +372,18 @@ FIXES = {
          "    tabname=Cargo\n    width=256\n    height=192\n    linkto=helm\n"),
     ],
 
-    # The Remora-only modules (remorareact, remorasensor) are in modules_npc.txt.  The shop stock generator
-    # (TradeLocation::addRandomModules) only picks module classes with a basevalue of at least 1.  The Remora
-    # sensor is already basevalue=0 (never sold), but the Remora RCS has basevalue=2505, so it could turn up
-    # in shops, cheap and better than the shop RCS units.  Set to 0 like the sensor: the module stays and the
-    # Remora keeps it, it just is not sold.
+    # modules_npc.txt holds the NPC-only modules (the Remora's own RCS and sensor, the probe sensor).  The shop
+    # stock generator (TradeLocation::addRandomModules) picks module classes with a basevalue of at least 1,
+    # and the debug log of a game shows "AP-RCS1" (Remora RCS, basevalue 2505) and "Probe Sensor"
+    # (basevalue 1872) being stocked in shops -- cheap, and better than the shop equivalents.  The Remora's
+    # own sensor (RM-SNS) is already basevalue=0 and never appears.  Set the two to 0 like it: the modules
+    # stay and the ships and probes keep using them, they are just not sold.
     "modules_npc.txt": [
         (1,
          "    basevalue=2505\n",
+         "    basevalue=0\n"),
+        (1,
+         "    basevalue=1872\n",
          "    basevalue=0\n"),
     ],
 
