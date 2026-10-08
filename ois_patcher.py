@@ -2514,6 +2514,45 @@ def fix_pds_panel_name_overflow(data, pe, ptch_va, ptch_off, cave_cursor):
     return cave_cursor
 
 
+AUTOPILOT_CAVE = bytes.fromhex(
+    "f30f104df08b030f5a4008f20f106f28660f166f30660f5cc50f5ab718010000"
+    "660f59c6660f28f0660f15f6f20f58c6660f57f6660f2fc6721fb80000344366"
+    "0f6ef0f30f58ceb80000b443660f6ef00f2fce7204f30f5cce"
+)                                                   # assembled by tools/autopilot/asm_ap.py
+
+
+def fix_autopilot_overshoot(data, pe, ptch_va, ptch_off, cave_cursor, server=False):
+    label = "Autopilot: after overshooting its destination the ship burns away from it" + (" (server)" if server else "")
+    applied, skipped = (SERVER_FIXES_APPLIED, SERVER_FIXES_SKIPPED) if server else (FIXES_APPLIED, FIXES_SKIPPED)
+    SITE = 0x00516E2F if server else 0x0051791F
+    BACK = SITE + 0x1E
+    # Ship travel logic, final-waypoint "decelerate" state (travel state 4).  It brakes by facing
+    # (angle to the waypoint + 180) and burning while the stopping distance is >= the distance left.
+    # That is only a retro burn while the ship is still heading for the waypoint.  Once it has flown
+    # past it (a fast engine does, e.g. the GX Delta at 100%), the angle to the waypoint flips, so the
+    # same heading points along the ship's velocity: the burn accelerates it away, draining the
+    # batteries, until the "far enough, turn back" test fires.  The cave uses the dot product of the
+    # ship's velocity with the vector to the waypoint: if the ship is moving away it faces the waypoint
+    # instead (a real retro burn); otherwise the heading is exactly the stock one.
+    expected_a = bytes.fromhex("F30F104DF0F30F580D")
+    if verify_site(data, pe, SITE, expected_a, label) is None \
+            or verify_site(data, pe, SITE + 0x0D, bytes.fromhex("F30F1005"), label + " (360.0)") is None \
+            or verify_site(data, pe, SITE + 0x15, bytes.fromhex("0F2FC87204F30F5CC8A1"), label + " (after)") is None:
+        skipped.append(label)
+        return cave_cursor
+    neutralize_relocations(data, pe, SITE, 0x1E, label)
+    cave_va = ptch_va + cave_cursor
+    body = bytearray(AUTOPILOT_CAVE)
+    body += b"\xE9" + struct.pack("<i", BACK - (cave_va + len(body) + 5))
+    data[ptch_off + cave_cursor: ptch_off + cave_cursor + len(body)] = body
+    cave_cursor += len(body)
+    off = va_to_offset(pe, SITE)
+    data[off:off + 0x1E] = b"\xE9" + struct.pack("<i", cave_va - (SITE + 5)) + b"\x90" * (0x1E - 5)
+    print(f"  [OK] {label}")
+    applied.append(label)
+    return cave_cursor
+
+
 def _rel32_target(data, pe, va, opcode_len):
     """Absolute target of a rel32 call/jump whose opcode is `opcode_len` bytes long."""
     off = va_to_offset(pe, va)
@@ -2715,6 +2754,7 @@ def patch_server_exe(exe_path):
     if CIV_VARIANT:
         cave_cursor = fix_civilians_comply(data, pe, ptch_va, ptch_off, cave_cursor, server=True)
     cave_cursor = fix_power_drain_modifier(data, pe, ptch_va, ptch_off, cave_cursor, server=True)
+    cave_cursor = fix_autopilot_overshoot(data, pe, ptch_va, ptch_off, cave_cursor, server=True)
     pe.close()
 
     if cave_cursor > ptch_size:
@@ -3836,6 +3876,7 @@ def main():
     cave_cursor = fix_forced_conversation_first_option(data, pe, ptch_va, ptch_off, cave_cursor)
     cave_cursor = fix_news_enter_without_selection(data, pe, ptch_va, ptch_off, cave_cursor)
     cave_cursor = fix_pds_panel_name_overflow(data, pe, ptch_va, ptch_off, cave_cursor)
+    cave_cursor = fix_autopilot_overshoot(data, pe, ptch_va, ptch_off, cave_cursor)
     pe.close()
 
     if cave_cursor > ptch_size:
