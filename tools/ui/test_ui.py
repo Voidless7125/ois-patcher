@@ -1,0 +1,87 @@
+#!/usr/bin/env python3
+"""Checks for the terminal-units / STATUS and forced-conversation fixes (needs `pip install unicorn pefile`).
+
+    python3 tools/ui/test_ui.py <game dir>/ois.exe
+"""
+import os
+import struct
+import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "common"))
+import emu as tp
+from unicorn import UC_HOOK_CODE
+from unicorn.x86_const import UC_X86_REG_EAX, UC_X86_REG_EBX, UC_X86_REG_ECX, UC_X86_REG_EDX, UC_X86_REG_EIP, UC_X86_REG_ESP
+
+SITE, FIRST_VALID, CONTINUE, STATUS_CALL = 0x431B40, 0x430EB0, 0x431B4A, 0x54B361
+
+
+def main():
+    exe = sys.argv[1]
+    emu = tp.Emu(exe)
+    emu.dist_hooks = (0, 0)
+    bad = 0
+
+    def check(name, ok):
+        nonlocal bad
+        bad += not ok
+        print(("  PASS " if ok else "  FAIL ") + name)
+
+    raw = open(exe, "rb").read()
+    check("no 'mw' power format strings are left", b"%.2fmw" not in raw and b"%.2fkw" in raw)
+    rel = struct.unpack("<i", bytes(emu.uc.mem_read(STATUS_CALL + 1, 4)))[0]
+    check("STATUS 'Current Power Drain' now calls totalPowerDrain", STATUS_CALL + 5 + rel == 0x5246B0)
+
+    # forced conversation start: [this+0x94] must become firstValidConversationOption(), registers kept
+    def stub(uc, address, size, user):
+        if address == FIRST_VALID:
+            this = uc.reg_read(UC_X86_REG_ECX)
+            uc.reg_write(UC_X86_REG_EAX, emu.r32(this + 0x88) + 7)     # pretend: option 7 is the first valid one
+            esp = uc.reg_read(UC_X86_REG_ESP)
+            uc.reg_write(UC_X86_REG_EIP, emu.r32(esp))
+            uc.reg_write(UC_X86_REG_ESP, esp + 4)
+
+    emu.uc.hook_add(UC_HOOK_CODE, stub, begin=FIRST_VALID, end=FIRST_VALID)
+    this = emu.alloc(0x200)
+    emu.w32(this + 0x88, 0)
+    emu.w32(this + 0x94, 99)
+    emu.stops[CONTINUE] = "continue"
+    keep = {UC_X86_REG_ECX: 0xAAAA0001, UC_X86_REG_EDX: 0xBBBB0002, UC_X86_REG_EBX: this}
+    emu.call_stdcall(SITE, [], regs=keep)
+    check("flow continues at the original next instruction", emu.stopped_at == "continue")
+    check("selected option = first valid option", emu.r32(this + 0x94) == 7)
+    check("ECX and EDX preserved", emu.uc.reg_read(UC_X86_REG_ECX) == 0xAAAA0001 and emu.uc.reg_read(UC_X86_REG_EDX) == 0xBBBB0002)
+    check("stack balanced", emu.uc.reg_read(UC_X86_REG_ESP) == tp.STACK_TOP - 0x1000 - 4)
+    # news list: selectedArticle(slot) must ignore a slot outside its table (-1 = nothing selected)
+    NEWS_SITE, NEWS_BACK = 0x4B5877, 0x4B587C
+    cs = emu.alloc(0x100)
+    table = emu.alloc(0x40)
+    for i in range(3):
+        emu.w32(table + 4 * i, 100 + i)
+    emu.w32(cs + 0x34, table)
+    emu.w32(cs + 0x38, table + 12)
+    for slot, expect in ((1, "continue"), (2, "continue"), (3, "returned"), (0xFFFFFFFF, "returned")):
+        emu.stops.clear()
+        emu.stops[NEWS_BACK] = "continue"
+        emu.w32(cs, 55)
+        # the code just before the site: EBP frame with the argument at [EBP+8], saved ECX on the stack
+        frame = tp.STACK_TOP - 0x2000
+        emu.w32(frame + 8, slot)
+        emu.w32(frame - 4, cs)
+        emu.w32(frame, 0)
+        emu.uc.mem_write(0x7FEFFE40, b"\xf4")
+        emu.w32(frame + 4, 0x7FEFFE40)
+        emu.stopped_at = None
+        from unicorn.x86_const import UC_X86_REG_EBP
+        emu.stops[0x7FEFFE40] = "returned"
+        emu.uc.reg_write(UC_X86_REG_EBP, frame)
+        emu.uc.reg_write(UC_X86_REG_ESP, frame - 4)
+        emu.uc.reg_write(UC_X86_REG_ECX, cs)
+        emu.uc.reg_write(UC_X86_REG_EDX, slot)
+        emu.uc.emu_start(NEWS_SITE, 0, count=200)
+        check(f"news slot {slot:#x}: {expect}", emu.stopped_at == expect)
+    print("all UI checks pass" if not bad else f"{bad} FAILED")
+    sys.exit(1 if bad else 0)
+
+
+if __name__ == "__main__":
+    main()
