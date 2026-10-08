@@ -14,8 +14,8 @@ import os
 import struct
 import sys
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "pds"))
-import test_pds as tp
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "common"))
+import emu as tp
 from unicorn.x86_const import UC_X86_REG_EBX, UC_X86_REG_ECX, UC_X86_REG_EDI, UC_X86_REG_EAX, UC_X86_REG_ESP
 
 TARGET, AIM_X, AIM_Y, MARKER, ENGINE_SLOTS = 0x38C, 0x12C, 0x130, 0x3DC, 0x40
