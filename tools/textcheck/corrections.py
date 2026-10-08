@@ -29,7 +29,7 @@ DELIBERATE = ['blr_asterinallasemail1.txt', 'ch2_michaelrangsikitphoemails1.txt'
 SKIP_FILES = ["enceladus_coridoor.txt"]
 # exact multi-word fixes (applied before word fixes)
 PHRASES = {
- "The're a trading terminal":"There's a trading terminal",
+ "The're a trading terminal":"They're a trading terminal",
  "Sagans Lights":"Sagan's Lights",
  "THe ship drifted":"The ship drifted",
 }
