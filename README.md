@@ -549,6 +549,18 @@ before:
 - **Infopedia list: the last row is cut in half** - the article list is 238 (4:3) / 268 (16:9)
   units tall but its rows are 8 units high and start 2 units down, so the next entry's top edge showed
   under the last full row. The list is trimmed to a whole number of rows (234 / 266). (Mod only, no exe patch.)
+- **Autopilot: after overshooting its destination a ship burns away from it** - when the autopilot
+  brakes for its last waypoint it faces (angle to the waypoint + 180 degrees) and burns while the stopping
+  distance is at least the distance left. That is a retro burn only while the ship is still heading for
+  the waypoint. A fast engine (the GX Delta at 100% power) can fly past it; the angle to the waypoint then
+  flips, the same heading points along the ship's velocity, and the "brake" burn accelerates the ship away,
+  draining the batteries until the turn-back test fires (a debug log of a failed docking shows the
+  "Overshot our mark" message, then no braking for over a minute). The heading now uses the dot product of
+  the velocity and the vector to the waypoint: moving away from it, the ship faces it and burns; otherwise
+  the heading is the stock one. The cause of the overshoot itself (the braking margin adds a turn time in
+  seconds to distances) is not changed, so a fast ship can still overshoot, but it now brakes instead
+  of running away. Applies to NPC ships on the server as well. (Exe patch, client and server;
+  `tools/autopilot/`.)
 - **Point-defence panel: a long manufacturer + name wraps and overlaps the buttons** - the panel's
   first line is "manufacturer name" and the panel is about 16 columns wide, so something like
   "Pritchard PSL 10X" wrapped to a second line and pushed the State/Range/CD lines into the
@@ -690,6 +702,7 @@ non-commercial purposes, as long as you credit the original author
 
 ### 0.4.0 - 2026-10-03
 
+- **New fix (exe, client and server):** the autopilot no longer burns away from its destination after overshooting it.
 - **New fix (mod):** the Infopedia article list no longer shows half a row at the bottom.
 - **New fix (exe, client):** a long point-defence name no longer wraps over the panel's buttons.
 - **New fixes (exe, client):** terminal power units mw -> kw and `STATUS` printing generation as drain; forced/intercom conversations select the first valid option; news-list Enter with nothing selected no longer prints a garbage article number.
