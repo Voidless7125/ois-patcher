@@ -3781,7 +3781,6 @@ def main():
     if CIV_VARIANT:
         cave_cursor = fix_civilians_comply(data, pe, ptch_va, ptch_off, cave_cursor)
     cave_cursor = fix_power_drain_modifier(data, pe, ptch_va, ptch_off, cave_cursor)
-    cave_cursor = fix_pds_torpedoes(data, pe, ptch_va, ptch_off, cave_cursor)
     fix_terminal_power_units(data, pe)
     cave_cursor = fix_forced_conversation_first_option(data, pe, ptch_va, ptch_off, cave_cursor)
     cave_cursor = fix_news_enter_without_selection(data, pe, ptch_va, ptch_off, cave_cursor)
