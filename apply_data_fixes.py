@@ -352,6 +352,24 @@ FIXES = {
          "    selecttray=1,1,162,266,INFOPEDIA_ARTICLES\n"),
     ],
 
+    # personal-variants only (see the Enceladus entry above): Ceres and Remora console tabs follow the helm.
+    "ui_ceres.txt": [
+        (1,
+         "    tabname=Cargo\n    width=256\n    height=192\n",
+         "    tabname=Cargo\n    width=256\n    height=192\n    linkto=helm\n"),
+        (1,
+         "    shortname=c_weapons\n    tabname=Weapons\n    width=192\n    height=144\n#linkto=weapon\n",
+         "    shortname=c_weapons\n    tabname=Weapons\n    width=192\n    height=144\n#linkto=weapon\n    linkto=helm\n"),
+        (1,
+         "    shortname=c_weapons2\n    tabname=Weapons\n    width=256\n    height=192\n#linkto=weapon\n",
+         "    shortname=c_weapons2\n    tabname=Weapons\n    width=256\n    height=192\n#linkto=weapon\n    linkto=helm\n"),
+    ],
+    "ui_remora.txt": [
+        (1,
+         "    tabname=Cargo\n    width=256\n    height=192\n",
+         "    tabname=Cargo\n    width=256\n    height=192\n    linkto=helm\n"),
+    ],
+
     # BUG-032: the Comms Download / Sync terminal is a square (192x192)
     # screen. The game only builds its log and "?" help pages for 4:3 and
     # 16:9 screens (the only help/log layouts that exist), so on a square

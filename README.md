@@ -546,7 +546,7 @@ before:
   so slot -1 read the heap word in front of the table and printed it as the article number. Out-of-range
   slots are now ignored. (Exe patch, client. The missing selection marker on first opening is not
   fixed.)
-- **(personal-variants only) Enceladus console tabs share the helm's damage** - the Weapons and Cargo tabs
+- **(personal-variants only) Console tabs share the helm's damage (Enceladus, Ceres, Remora)** - the Weapons and Cargo tabs
   of the Enceladus helm console now carry `linkto=helm`, like the Helm Control tab, so the damage static and
   the offline/unpowered state of the helm module show on all three tabs. This couples those tabs to the helm
   module: with the helm unpowered or destroyed they are unavailable too. The devs left `#linkto=weapon`
