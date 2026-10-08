@@ -2372,6 +2372,102 @@ CIVILIAN_TORPEDO_FIXUPS = [(0x94, "SEEN"), (0xa1, "CONTINUE")]
 
 CIV_CHANCE_STOCK = (100, 90, 60, 15)
 CIV_CHANCE_NEW = (100, 90, 70, 35)
+def fix_terminal_power_units(data, pe):
+    """The ship terminal labels power in "mw" while the rest of the game (power screen, power bar)
+    uses kW, and the numbers are the same ones.  Also, the terminal's STATUS command prints the
+    ship's power *generation* on its "Current Power Drain" line."""
+    label = "Ship terminal power units (mw instead of kw) and STATUS drain line"
+    FORMATS = [b"  `%%PWR Gen`2: %.2fmw/%.2fmw\n", b"  `$PWR Store`2: %.2fmw/%.2fmw\n",
+               b"  `^PWR Drain`2: `@-%.2fmw\n", b"Current Power Drain: `@-%.2fmw",
+               b"Current Power Generation: `$%.2fmw`2/`$%.2fmw", b"Current Power Storage: `!%.2fmw`2/`!%.2fmw",
+               b"`%%%s`2: storing `$%.2fmw`2/`$%.2fmw", b"`2Total power: `$%.2fmw`2/`$%.2fmw (%d%%)",
+               b"`%%%s`2: generating `$%.2fmw", b"`%%%s`2: draining `@%.2fmw"]
+    done = 0
+    for text in FORMATS:
+        needle = b"\x00" + text + b"\x00"
+        at = data.find(needle)
+        if at < 0 or data.find(needle, at + 1) >= 0:
+            print(f"  [SKIP] {label}: format string {text[:30]!r} not found exactly once")
+            FIXES_SKIPPED.append(label)
+            return
+        data[at + 1: at + 1 + len(text)] = text.replace(b"mw", b"kw")
+        done += 1
+    # STATUS: "Current Power Drain" is printed from SystemManager::totalPowerGeneration-like sum at
+    # 0x524720 (generation) instead of totalPowerDrain (0x5246B0), which the code computes just before
+    # and then discards.  The ship-text version of the same line (0x4F087D) calls totalPowerDrain.
+    CALL = 0x0054B361
+    if verify_site(data, pe, CALL - 7, bytes.fromhex("8BCEF20F110424E8"), label + " (status drain call)") is None:
+        FIXES_SKIPPED.append(label)
+        return
+    if _rel32_target(data, pe, CALL, 1) != 0x00524720:
+        print(f"  [SKIP] {label}: unexpected call target")
+        FIXES_SKIPPED.append(label)
+        return
+    neutralize_relocations(data, pe, CALL, 5, label)
+    off = va_to_offset(pe, CALL)
+    data[off:off + 5] = b"\xE8" + struct.pack("<i", 0x005246B0 - (CALL + 5))
+    print(f"  [OK] {label}")
+    FIXES_APPLIED.append(label)
+
+
+def fix_forced_conversation_first_option(data, pe, ptch_va, ptch_off, cave_cursor):
+    label = "Intercom/forced conversation: Enter does nothing until you press an arrow key"
+    SITE, FIRST_VALID, CONTINUE = 0x00431B40, 0x00430EB0, 0x00431B4A
+    # PrivateCommsManager::runLogic starts a forced conversation with `selected option = 0`, even when
+    # option 0 is hidden by its requirements (Asterin Allas's two "Ok?" options); every other start
+    # (switchTo, after choosing an option) uses firstValidConversationOption().
+    if verify_site(data, pe, SITE, bytes.fromhex("C7839400000000000000C7430800000000"), label) is None \
+            or verify_site(data, pe, FIRST_VALID, bytes.fromhex("8B818C00000033D256578BB8A0000000"),
+                           label + " (firstValidConversationOption)") is None:
+        FIXES_SKIPPED.append(label)
+        return cave_cursor
+    neutralize_relocations(data, pe, SITE, 10, label)
+    cave_va = ptch_va + cave_cursor
+    cave = bytearray(bytes.fromhex("51" "52" "8BCB"))                         # PUSH ECX / EDX ; ECX = this
+    cave += b"\xE8" + struct.pack("<i", FIRST_VALID - (cave_va + len(cave) + 5))
+    cave += bytes.fromhex("898394000000" "5A" "59")                           # [this+0x94] = EAX ; POP EDX / ECX
+    cave += b"\xE9" + struct.pack("<i", CONTINUE - (cave_va + len(cave) + 5))
+    data[ptch_off + cave_cursor: ptch_off + cave_cursor + len(cave)] = cave
+    cave_cursor += len(cave)
+    off = va_to_offset(pe, SITE)
+    data[off:off + 10] = b"\xE9" + struct.pack("<i", cave_va - (SITE + 5)) + b"\x90" * 5
+    print(f"  [OK] {label}")
+    FIXES_APPLIED.append(label)
+    return cave_cursor
+
+
+def fix_news_enter_without_selection(data, pe, ptch_va, ptch_off, cave_cursor):
+    label = "News list: Enter with nothing selected prints 'Invalid article number: <garbage>'"
+    SITE, BACK = 0x004B5877, 0x004B587C
+    # ComputerSystem::selectedArticle(slot) indexes its slot->article table with no range check
+    # (selectedEmail at least handles -1).  With slot -1 (nothing selected yet) it read the heap word
+    # in front of the table and reported it as the article number.
+    if verify_site(data, pe, SITE - 3, bytes.fromhex("8B550889118B4134FF3490A104D76500"), label) is None:
+        FIXES_SKIPPED.append(label)
+        return cave_cursor
+    neutralize_relocations(data, pe, SITE, 5, label)
+    cave_va = ptch_va + cave_cursor
+    cave = bytearray(bytes.fromhex("8B4138" "2B4134" "C1F802" "3BD0"))      # EAX = table length ; CMP EDX,EAX
+    cave += b"\x73\x00"                                                   # JAE out_of_range (unsigned: also -1)
+    jae = len(cave) - 1
+    cave += bytes.fromhex("8911" "8B4134")                                  # the two instructions we displaced
+    cave += b"\xE9" + struct.pack("<i", BACK - (cave_va + len(cave) + 5))
+    cave[jae] = len(cave) - (jae + 1)
+    cave += bytes.fromhex("59" "5D" "C20400")                               # POP ECX / POP EBP / RET 4
+    data[ptch_off + cave_cursor: ptch_off + cave_cursor + len(cave)] = cave
+    cave_cursor += len(cave)
+    off = va_to_offset(pe, SITE)
+    data[off:off + 5] = b"\xE9" + struct.pack("<i", cave_va - (SITE + 5))
+    print(f"  [OK] {label}")
+    FIXES_APPLIED.append(label)
+    return cave_cursor
+
+
+def _rel32_target(data, pe, va, opcode_len):
+    """Absolute target of a rel32 call/jump whose opcode is `opcode_len` bytes long."""
+    off = va_to_offset(pe, va)
+    rel = struct.unpack_from("<i", data, off + opcode_len)[0]
+    return va + opcode_len + 4 + rel
 
 
 def fix_civilians_comply(data, pe, ptch_va, ptch_off, cave_cursor, server=False):
@@ -3685,6 +3781,10 @@ def main():
     if CIV_VARIANT:
         cave_cursor = fix_civilians_comply(data, pe, ptch_va, ptch_off, cave_cursor)
     cave_cursor = fix_power_drain_modifier(data, pe, ptch_va, ptch_off, cave_cursor)
+    cave_cursor = fix_pds_torpedoes(data, pe, ptch_va, ptch_off, cave_cursor)
+    fix_terminal_power_units(data, pe)
+    cave_cursor = fix_forced_conversation_first_option(data, pe, ptch_va, ptch_off, cave_cursor)
+    cave_cursor = fix_news_enter_without_selection(data, pe, ptch_va, ptch_off, cave_cursor)
     pe.close()
 
     if cave_cursor > ptch_size:

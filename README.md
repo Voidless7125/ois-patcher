@@ -531,6 +531,32 @@ before:
   your campaign. Only the story scenario (whose description says it "auto-saves
   whenever you dock/undock or use a jumpgate") saves now. Side effect: statistics
   from other scenarios are no longer stored at those moments. (Exe patch, client only.)
+- **Ship terminal shows power in "mw" and STATUS prints generation as drain** - the terminal's
+  `STATUS`, `POWER` and ship-text lines say "mw" while the power screen and power bar show the same
+  numbers in kW, so they are now "kw". The `STATUS` line "Current Power Drain" also printed the
+  ship's *generation* (the code computed the drain, then discarded it); it now prints the drain,
+  like the same line in the ship text does. (Exe patch, client.)
+- **Intercom/forced conversations: Enter does nothing until you press an arrow key** - a conversation
+  the game starts by itself selected option 0 even when that option is hidden by its requirements
+  (Asterin Allas has two "Ok?" options, one for each state of `blr_knowsaboutleague`), so Enter was
+  refused as an invalid option. It now selects the first valid option, as every other way of starting
+  or advancing a conversation already does. (Exe patch, client.)
+- **News list: Enter with nothing selected shows "Invalid article number: 747614849"** - the news
+  list indexes its slot table without a range check (the e-mail list handles "nothing selected"),
+  so slot -1 read the heap word in front of the table and printed it as the article number. Out-of-range
+  slots are now ignored. (Exe patch, client. The missing selection marker on first opening is not
+  fixed.)
+- **The point-defence laser can never destroy a torpedo** - the Infopedia says
+  point-defence lasers "rapidly shoot laser blasts at nearby torpedoes when they are close
+  enough to your ship", but the PDS "hits" through the same damage routine ships use, and
+  that routine does nothing for torpedoes, probes and mines, so a locked torpedo was never
+  harmed. It also took the first candidate in the sector's list, so a torpedo behind any ship
+  with its IFF off was never reached, and it would have counted your own torpedoes as targets
+  once they could be hurt. Now it looks for weapons first (never your own, never one already
+  destroyed), a locked weapon is destroyed (no warhead blast), and ships are chosen by the
+  unchanged stock rule (only ships with their IFF off). The module's own hit roll
+  (`hitchance`, 1d6 on the PDL 101) still applies. (Exe patch, client and server;
+  `tools/pds/`, client-only emulation test.)
 - **Power drain: the numbers disagree, and the components' power modifiers never
   applied to the real drain** - every component has a `powermodifier` (extra power
   use, in percent) and the game shows it on the module screens, the module tooltips,
@@ -760,6 +786,8 @@ non-commercial purposes, as long as you credit the original author
 
 ### 0.4.0 - 2026-10-03
 
+- **New fixes (exe, client):** terminal power units mw -> kw and `STATUS` printing generation as drain; forced/intercom conversations select the first valid option; news-list Enter with nothing selected no longer prints a garbage article number.
+- **New fix:** the point-defence laser can now destroy torpedoes, as the Infopedia says it does (exe, client and server). It still only shoots ships with their IFF off.
 - **New fix:** the power drain shown on the Power screen and the power really taken from the batteries now agree: component power modifiers are applied to both, and active modules are no longer counted at idle + active (exe, client and server). Batteries drain faster on ships whose components have a power modifier.
 - **New fix:** a torpedo whose target is destroyed before impact no longer re-targets the nearest contact (a station, another weapon or you); it drifts, and can be re-targeted by hand (exe, client and server).
 - **New fix:** docking or jumping in a stand-alone (non-story) scenario no longer auto-saves over save slot 1. Only the story scenario saves (exe).
