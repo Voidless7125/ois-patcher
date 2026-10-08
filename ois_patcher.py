@@ -2582,6 +2582,38 @@ def fix_nav_jump_range_efficiency(data, pe, ptch_va, ptch_off, cave_cursor):
     return cave_cursor
 
 
+def fix_autopilot_cruise_burn(data, pe, ptch_va, ptch_off, cave_cursor, server=False):
+    label = "Autopilot keeps burning the main drive at top speed" + (" (server)" if server else "")
+    applied, skipped = (SERVER_FIXES_APPLIED, SERVER_FIXES_SKIPPED) if server else (FIXES_APPLIED, FIXES_SKIPPED)
+    SITE = 0x00516D50 if server else 0x00517840
+    OFF, ON = SITE + 0x1B, SITE + 0x0E
+    # Ship travel logic, "accelerate to the final waypoint" state.  The drive is switched off once the ship's
+    # speed reaches the class's top speed (`maxspeed <= speed`).  Ship::accelerate caps the speed by rescaling
+    # the velocity vector to exactly that length, but the length of the rescaled vector is then a float that
+    # can come out a hair under the cap (1.2999999 for 1.3), so the test fails about every other tick and the
+    # drive keeps burning at the cap (a GX Delta at 100% draws 14 kW/s), draining the batteries; with the
+    # batteries gone the ship cannot brake for its destination and flies past it.  The other autopilot state
+    # that does this test (the intermediate waypoints) already allows 1e-5; this one now does too.
+    if verify_site(data, pe, SITE, bytes.fromhex("F30F1080080100000F2F45EC760D8B4F40E8"), label) is None \
+            or verify_site(data, pe, OFF, bytes.fromhex("8B47408B401080786200"), label + " (drive off)") is None:
+        skipped.append(label)
+        return cave_cursor
+    neutralize_relocations(data, pe, SITE, 14, label)
+    cave_va = ptch_va + cave_cursor
+    c = bytearray(bytes.fromhex("F30F108008010000"))            # MOVSS XMM0,[EAX+0x108]   top speed
+    c += bytes.fromhex("BAACC52737" "660F6ECA" "F30F5CC1")        # EDX = 1e-5f ; XMM1 = EDX ; XMM0 -= XMM1
+    c += bytes.fromhex("0F2F45EC")                              # COMISS XMM0,[EBP-0x14]   current speed
+    c += b"\x0F\x86" + struct.pack("<i", OFF - (cave_va + len(c) + 6))      # JBE: at top speed -> drive off
+    c += b"\xE9" + struct.pack("<i", ON - (cave_va + len(c) + 5))            # otherwise as before
+    data[ptch_off + cave_cursor: ptch_off + cave_cursor + len(c)] = c
+    cave_cursor += len(c)
+    off = va_to_offset(pe, SITE)
+    data[off:off + 14] = b"\xE9" + struct.pack("<i", cave_va - (SITE + 5)) + b"\x90" * 9
+    print(f"  [OK] {label}")
+    applied.append(label)
+    return cave_cursor
+
+
 def _rel32_target(data, pe, va, opcode_len):
     """Absolute target of a rel32 call/jump whose opcode is `opcode_len` bytes long."""
     off = va_to_offset(pe, va)
@@ -2784,6 +2816,7 @@ def patch_server_exe(exe_path):
         cave_cursor = fix_civilians_comply(data, pe, ptch_va, ptch_off, cave_cursor, server=True)
     cave_cursor = fix_power_drain_modifier(data, pe, ptch_va, ptch_off, cave_cursor, server=True)
     cave_cursor = fix_autopilot_overshoot(data, pe, ptch_va, ptch_off, cave_cursor, server=True)
+    cave_cursor = fix_autopilot_cruise_burn(data, pe, ptch_va, ptch_off, cave_cursor, server=True)
     pe.close()
 
     if cave_cursor > ptch_size:
@@ -3906,6 +3939,7 @@ def main():
     cave_cursor = fix_news_enter_without_selection(data, pe, ptch_va, ptch_off, cave_cursor)
     cave_cursor = fix_pds_panel_name_overflow(data, pe, ptch_va, ptch_off, cave_cursor)
     cave_cursor = fix_autopilot_overshoot(data, pe, ptch_va, ptch_off, cave_cursor)
+    cave_cursor = fix_autopilot_cruise_burn(data, pe, ptch_va, ptch_off, cave_cursor)
     cave_cursor = fix_nav_jump_range_efficiency(data, pe, ptch_va, ptch_off, cave_cursor)
     pe.close()
 
