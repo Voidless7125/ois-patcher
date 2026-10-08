@@ -546,6 +546,11 @@ before:
   so slot -1 read the heap word in front of the table and printed it as the article number. Out-of-range
   slots are now ignored. (Exe patch, client. The missing selection marker on first opening is not
   fixed.)
+- **Point-defence panel: a long manufacturer + name wraps and overlaps the buttons** - the panel's
+  first line is "manufacturer name" and the panel is about 16 columns wide, so something like
+  "Pritchard PSL 10X" wrapped to a second line and pushed the State/Range/CD lines into the
+  ENABLE button. When the two do not fit on one line the name alone is printed (here "PSL 10X").
+  The 16-column limit is inferred from a screenshot, not measured. (Exe patch, client.)
 - **The point-defence laser can never destroy a torpedo** - the Infopedia says
   point-defence lasers "rapidly shoot laser blasts at nearby torpedoes when they are close
   enough to your ship", but the PDS "hits" through the same damage routine ships use, and
@@ -682,6 +687,7 @@ non-commercial purposes, as long as you credit the original author
 
 ### 0.4.0 - 2026-10-03
 
+- **New fix (exe, client):** a long point-defence name no longer wraps over the panel's buttons.
 - **New fixes (exe, client):** terminal power units mw -> kw and `STATUS` printing generation as drain; forced/intercom conversations select the first valid option; news-list Enter with nothing selected no longer prints a garbage article number.
 - **New fix:** the point-defence laser can now destroy torpedoes, as the Infopedia says it does (exe, client and server). It still only shoots ships with their IFF off.
 - **New fix:** the power drain shown on the Power screen and the power really taken from the batteries now agree: component power modifiers are applied to both, and active modules are no longer counted at idle + active (exe, client and server). Batteries drain faster on ships whose components have a power modifier.

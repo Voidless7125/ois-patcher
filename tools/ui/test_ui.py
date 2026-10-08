@@ -79,6 +79,45 @@ def main():
         emu.uc.reg_write(UC_X86_REG_EDX, slot)
         emu.uc.emu_start(NEWS_SITE, 0, count=200)
         check(f"news slot {slot:#x}: {expect}", emu.stopped_at == expect)
+    # PDS panel header: long "manufacturer name" must print the name alone, short ones stay as they were
+    PDS_SITE, PDS_FMT_PUSH, PDS_AFTER, FORMAT_FN = 0x4F630B, 0x4F6310, 0x4F631E, 0x593B30
+    calls = []
+
+    def fmt_stub(uc, address, size, user):
+        if address == FORMAT_FN:
+            esp = uc.reg_read(UC_X86_REG_ESP)
+            fmt = bytes(uc.mem_read(emu.r32(esp + 8), 12)).split(b"\0")[0]
+            arg0 = bytes(uc.mem_read(emu.r32(esp + 12), 16)).split(b"\0")[0]
+            calls.append((fmt, arg0))
+            uc.reg_write(UC_X86_REG_EAX, emu.r32(esp + 4))
+            uc.reg_write(UC_X86_REG_EIP, emu.r32(esp))
+            uc.reg_write(UC_X86_REG_ESP, esp + 4)       # cdecl: the caller pops the arguments
+
+    emu.uc.hook_add(UC_HOOK_CODE, fmt_stub, begin=FORMAT_FN, end=FORMAT_FN)
+    for mfr, name, want in ((b"Pritchard", b"PSL 10X", "long"), (b"Ceres", b"PDL Mk III", "short"),
+                            (b"Pritchard", b"PSL 1", "short"), (b"AAAAAAAA", b"BBBBBBB", "short"), (b"AAAAAAAA", b"BBBBBBBB", "long")):
+        m, n = emu.alloc(32), emu.alloc(32)
+        emu.uc.mem_write(m, mfr + b"\0")
+        emu.uc.mem_write(n, name + b"\0")
+        emu.stops.clear()
+        emu.stops[PDS_FMT_PUSH] = "short"
+        emu.stops[PDS_AFTER] = "long"
+        calls.clear()
+        from unicorn.x86_const import UC_X86_REG_EBP
+        frame = tp.STACK_TOP - 0x4000
+        emu.uc.reg_write(UC_X86_REG_EBP, frame)
+        emu.uc.reg_write(UC_X86_REG_ESP, frame - 0x80)
+        emu.uc.reg_write(UC_X86_REG_EAX, m)
+        emu.uc.reg_write(UC_X86_REG_ECX, n)
+        esp0 = frame - 0x80
+        emu.stopped_at = None
+        emu.uc.emu_start(PDS_SITE, 0, count=2000)
+        ok = emu.stopped_at == want
+        if want == "long":
+            ok = ok and calls == [(b"`%%%s\n", name)] and emu.uc.reg_read(UC_X86_REG_ESP) == esp0
+        else:
+            ok = ok and not calls and emu.uc.reg_read(UC_X86_REG_ESP) == esp0 - 8
+        check(f"PDS header {mfr.decode()} {name.decode()}: {want}", ok)
     print("all UI checks pass" if not bad else f"{bad} FAILED")
     sys.exit(1 if bad else 0)
 

@@ -2370,6 +2370,57 @@ def fix_news_enter_without_selection(data, pe, ptch_va, ptch_off, cave_cursor):
     return cave_cursor
 
 
+def fix_pds_panel_name_overflow(data, pe, ptch_va, ptch_off, cave_cursor):
+    label = "Point-defence panel: long manufacturer + name wraps and overlaps the buttons"
+    SITE, AFTER_CALL, FORMAT_CALL = 0x004F630B, 0x004F631E, 0x00593B30
+    # ShipTextData: the first line of the PDS info is formatted "`!%s `%%%s\n" (manufacturer, name).  The
+    # panel is about 16 characters wide, so "Pritchard PSL 10X" wraps to a second line and everything
+    # below it moves down into the ENABLE/DISABLE button.  When the two do not fit on one line,
+    # print the name alone (the full manufacturer + name is still shown by the Infopedia/shop).
+    if verify_site(data, pe, SITE, bytes.fromhex("51508D45C068"), label) is None \
+            or verify_site(data, pe, SITE + 0x0A, bytes.fromhex("50E8"), label + " (format call)") is None \
+            or _rel32_target(data, pe, SITE + 0x0B, 1) != FORMAT_CALL \
+            or verify_site(data, pe, AFTER_CALL, bytes.fromhex("C645FC01"), label + " (after call)") is None:
+        FIXES_SKIPPED.append(label)
+        return cave_cursor
+    neutralize_relocations(data, pe, SITE, 5, label)
+    cave_va = ptch_va + cave_cursor
+    c = bytearray()
+
+    def rel(target, opcode_len):
+        return struct.pack("<i", target - (cave_va + len(c) + opcode_len + 4))
+
+    c += bytes.fromhex("56" "57" "33D2" "8BF0")                      # PUSH ESI/EDI ; EDX = 0 ; ESI = manufacturer
+    c += bytes.fromhex("803E00" "7404" "46" "42" "EBF7")              # count its characters in EDX
+    c += bytes.fromhex("8BF1")                                       # ESI = name
+    c += bytes.fromhex("803E00" "7404" "46" "42" "EBF7")              # ... and its characters
+    c += bytes.fromhex("5F" "5E")                                    # POP EDI/ESI
+    c += bytes.fromhex("83FA0F")                                     # CMP EDX,15   (+1 space + newline > 16 columns)
+    ja = len(c) + 1; c += b"\x77\x00"                                # JA long
+    c += bytes.fromhex("51" "50" "8D45C0")                           # original: PUSH ECX / PUSH EAX / LEA EAX,[EBP-0x40]
+    c += b"\xE9" + rel(SITE + 5, 1)                                  # JMP back (the original PUSH <format> follows)
+    c[ja] = len(c) - (ja + 1)
+    c += bytes.fromhex("51" "8D45C0")                                # PUSH name ; LEA EAX,[EBP-0x40]
+    c += bytes.fromhex("E800000000" "5A")                            # CALL $+5 ; POP EDX  (position independent)
+    fix_pos = len(c) + 2
+    c += bytes.fromhex("81C2") + b"\0\0\0\0"                         # ADD EDX,<offset of the format below>
+    here = len(c)
+    c += bytes.fromhex("52" "50")                                    # PUSH format ; PUSH destination
+    c += b"\xE8" + rel(FORMAT_CALL, 1)                               # CALL strUsingArgs
+    c += bytes.fromhex("83C40C")                                     # ADD ESP,12 (cdecl)
+    c += b"\xE9" + rel(AFTER_CALL, 1)                                # JMP after the original ADD ESP,16
+    fmt_at = len(c)
+    c += b"`%%%s\n\x00"
+    struct.pack_into("<i", c, fix_pos, fmt_at - (fix_pos - 3))   # EDX = address of the POP
+    data[ptch_off + cave_cursor: ptch_off + cave_cursor + len(c)] = c
+    cave_cursor += len(c)
+    off = va_to_offset(pe, SITE)
+    data[off:off + 5] = b"\xE9" + struct.pack("<i", cave_va - (SITE + 5))
+    print(f"  [OK] {label}")
+    FIXES_APPLIED.append(label)
+    return cave_cursor
+
+
 def _rel32_target(data, pe, va, opcode_len):
     """Absolute target of a rel32 call/jump whose opcode is `opcode_len` bytes long."""
     off = va_to_offset(pe, va)
@@ -3614,6 +3665,7 @@ def main():
     fix_terminal_power_units(data, pe)
     cave_cursor = fix_forced_conversation_first_option(data, pe, ptch_va, ptch_off, cave_cursor)
     cave_cursor = fix_news_enter_without_selection(data, pe, ptch_va, ptch_off, cave_cursor)
+    cave_cursor = fix_pds_panel_name_overflow(data, pe, ptch_va, ptch_off, cave_cursor)
     pe.close()
 
     if cave_cursor > ptch_size:
