@@ -562,7 +562,7 @@ before:
   Remora sensor, 0) did not. Set to 0 so they are not sold; the Remora and probes keep using them. (Mod only.)
 - **Infopedia list: the last row is cut in half** - the article list is 238 (4:3) / 268 (16:9)
   units tall but its rows are 8 units high and start 2 units down, so the next entry's top edge showed
-  under the last full row. The list is trimmed to a whole number of rows plus a unit of margin (235 / 259). (Mod only, no exe patch.)
+  under the last full row. The list is trimmed to a whole number of rows plus a unit of margin (235 / 259). The article text pane beside it is shortened the same way so its last line stops above the bottom edge. (Mod only, no exe patch.)
 - **Autopilot keeps burning the main drive at top speed, draining the batteries** - in the "accelerate to the
   final waypoint" state the drive is switched off when `top speed <= speed`. The speed is capped by rescaling the
   velocity vector to exactly the top speed, but the rescaled vector's length is a float that comes out a hair

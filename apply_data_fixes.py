@@ -343,7 +343,8 @@ FIXES = {
     # The Infopedia article list (4:3 and 16:9 screens) is 238 / 268 units tall but its rows are 8 units high
     # and start 2 units down, so the last row is cut in half at the bottom (the next entry's top edge shows
     # under "Point Defence Lasers").  Trimmed to a whole number of rows plus one unit of margin, so the last
-    # row no longer touches the frame: 29 rows (4:3) and 32 rows (16:9).
+    # row no longer touches the frame: 29 rows (4:3) and 32 rows (16:9).  The article text pane next to it is
+    # shortened the same way, so its last line stops above the bottom edge.
     "ui.txt": [
         (1,
          "    selecttray=1,1,162,238,INFOPEDIA_ARTICLES\n",
@@ -351,6 +352,12 @@ FIXES = {
         (1,
          "    selecttray=1,1,162,268,INFOPEDIA_ARTICLES\n",
          "    selecttray=1,1,162,259,INFOPEDIA_ARTICLES\n"),
+        (1,
+         "    textfield=164,1,154,238,INFOPEDIA_ARTICLE_CONTENT\n",
+         "    textfield=164,1,154,227,INFOPEDIA_ARTICLE_CONTENT\n"),
+        (1,
+         "    textfield=164,1,314,268,INFOPEDIA_ARTICLE_CONTENT\n",
+         "    textfield=164,1,314,259,INFOPEDIA_ARTICLE_CONTENT\n"),
     ],
 
     # Same for Ceres (also used by the Proxima's console) and Remora: their Weapons / Cargo tabs show the
