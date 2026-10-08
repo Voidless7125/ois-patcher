@@ -546,6 +546,9 @@ before:
   so slot -1 read the heap word in front of the table and printed it as the article number. Out-of-range
   slots are now ignored. (Exe patch, client. The missing selection marker on first opening is not
   fixed.)
+- **Infopedia list: the last row is cut in half** - the article list is 238 (4:3) / 268 (16:9)
+  units tall but its rows are 8 units high and start 2 units down, so the next entry's top edge showed
+  under the last full row. The list is trimmed to a whole number of rows (234 / 266). (Mod only, no exe patch.)
 - **Point-defence panel: a long manufacturer + name wraps and overlaps the buttons** - the panel's
   first line is "manufacturer name" and the panel is about 16 columns wide, so something like
   "Pritchard PSL 10X" wrapped to a second line and pushed the State/Range/CD lines into the
@@ -791,6 +794,7 @@ non-commercial purposes, as long as you credit the original author
 
 ### 0.4.0 - 2026-10-03
 
+- **New fix (mod):** the Infopedia article list no longer shows half a row at the bottom.
 - **New fix (exe, client):** a long point-defence name no longer wraps over the panel's buttons.
 - **New fixes (exe, client):** terminal power units mw -> kw and `STATUS` printing generation as drain; forced/intercom conversations select the first valid option; news-list Enter with nothing selected no longer prints a garbage article number.
 - **New fix:** the point-defence laser can now destroy torpedoes, as the Infopedia says it does (exe, client and server). It still only shoots ships with their IFF off.
