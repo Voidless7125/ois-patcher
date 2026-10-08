@@ -546,6 +546,11 @@ before:
   so slot -1 read the heap word in front of the table and printed it as the article number. Out-of-range
   slots are now ignored. (Exe patch, client. The missing selection marker on first opening is not
   fixed.)
+- **(personal-variants only) Enceladus console tabs share the helm's damage** - the Weapons and Cargo tabs
+  of the Enceladus helm console now carry `linkto=helm`, like the Helm Control tab, so the damage static and
+  the offline/unpowered state of the helm module show on all three tabs. This couples those tabs to the helm
+  module: with the helm unpowered or destroyed they are unavailable too. The devs left `#linkto=weapon`
+  commented out on the Weapons tab, so this is not restoring documented behaviour. (Mod only.)
 - **Infopedia list: the last row is cut in half** - the article list is 238 (4:3) / 268 (16:9)
   units tall but its rows are 8 units high and start 2 units down, so the next entry's top edge showed
   under the last full row. The list is trimmed to a whole number of rows (234 / 266). (Mod only, no exe patch.)

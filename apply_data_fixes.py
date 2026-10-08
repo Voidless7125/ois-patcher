@@ -328,6 +328,15 @@ FIXES = {
         (1,
          "    button=128,170,80,`!Undock,UNDOCK,CAN_UNDOCK\n",
          "    button=158,170,80,`!Undock,UNDOCK,CAN_UNDOCK\n"),
+        # personal-variants only: damage static / offline state on the Weapons and Cargo
+        # tabs follows the helm module, like the Helm Control tab of the same console.
+        # (The devs left `#linkto=weapon` commented out on the Weapons tab.)
+        (1,
+         "    tabname=Weapons\n    width=256\n    height=192\n#linkto=weapon\n",
+         "    tabname=Weapons\n    width=256\n    height=192\n#linkto=weapon\n    linkto=helm\n"),
+        (1,
+         "    tabname=Cargo\n    width=256\n    height=192\n",
+         "    tabname=Cargo\n    width=256\n    height=192\n    linkto=helm\n"),
     ],
 
     # The Infopedia article list (4:3 and 16:9 screens) is 238 / 268 units
