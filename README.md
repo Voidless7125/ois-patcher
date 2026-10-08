@@ -546,11 +546,19 @@ before:
   so slot -1 read the heap word in front of the table and printed it as the article number. Out-of-range
   slots are now ignored. (Exe patch, client. The missing selection marker on first opening is not
   fixed.)
-- **(personal-variants only) Console tabs share the helm's damage (Enceladus, Ceres, Remora)** - the Weapons and Cargo tabs
-  of the Enceladus helm console now carry `linkto=helm`, like the Helm Control tab, so the damage static and
-  the offline/unpowered state of the helm module show on all three tabs. This couples those tabs to the helm
-  module: with the helm unpowered or destroyed they are unavailable too. The devs left `#linkto=weapon`
-  commented out on the Weapons tab, so this is not restoring documented behaviour. (Mod only.)
+- **Nav map: a jump drive above 100% efficiency shows sectors as out of range** - the "Dist." line of the
+  selected sector is blue when the sector is within jump range and red when not, but it compared the distance
+  with the drive class's base range. The real range (used by the Set Dest. button and the jump itself) is that
+  range times the drive's efficiency, so a drive above 100% was shown red for sectors it can reach. The line now
+  uses the real range. (Exe patch, client.)
+- **Console tabs: the Weapons and Cargo tabs never showed damage** - on the Enceladus, Ceres (and the Proxima,
+  which uses the Ceres screens) and Remora consoles, the Helm Control / Orbital tabs carry `linkto=helm`, which
+  is what shows a module's damage static and offline state, but the Weapons tab (a commented-out
+  `#linkto=weapon`) and the Cargo tab had no link. They now follow the helm like the other tabs of the console.
+  Side effect: with the helm unpowered or destroyed those tabs are unavailable too. (Mod only.)
+- **Remora RCS can be bought in shops** - the Remora-only modules live in `modules_npc.txt`; the shop stock
+  generator only picks modules with a `basevalue` of at least 1. The Remora sensor is already 0, the Remora RCS
+  had 2505. Set to 0 so it is not sold (the Remora keeps it). (Mod only.)
 - **Infopedia list: the last row is cut in half** - the article list is 238 (4:3) / 268 (16:9)
   units tall but its rows are 8 units high and start 2 units down, so the next entry's top edge showed
   under the last full row. The list is trimmed to a whole number of rows (234 / 266). (Mod only, no exe patch.)
@@ -811,6 +819,7 @@ non-commercial purposes, as long as you credit the original author
 
 ### 0.4.0 - 2026-10-03
 
+- **New fixes:** nav map distance colour uses the real jump range (exe, client); console Weapons/Cargo tabs show the helm's damage (Enceladus, Ceres/Proxima, Remora); the Remora RCS is no longer sold in shops (mod).
 - **New fix (exe, client and server):** the autopilot no longer burns away from its destination after overshooting it.
 - **New fix (mod):** the Infopedia article list no longer shows half a row at the bottom.
 - **New fix (exe, client):** a long point-defence name no longer wraps over the panel's buttons.
