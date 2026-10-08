@@ -531,6 +531,20 @@ before:
   your campaign. Only the story scenario (whose description says it "auto-saves
   whenever you dock/undock or use a jumpgate") saves now. Side effect: statistics
   from other scenarios are no longer stored at those moments. (Exe patch, client only.)
+- **Power drain: the numbers disagree, and the components' power modifiers never
+  applied to the real drain** - every component has a `powermodifier` (extra power
+  use, in percent) and the game shows it on the module screens, the module tooltips,
+  the terminal's `POWER DRAIN` list and the "Actual" lines of the Power Management
+  page ("Theoretical" is the unmodified figure). But the power actually taken from the
+  batteries ignored it, and so did the "Drain" figure at the top of that page and the
+  power bar, which also counted an active module's idle drain on top of its active drain
+  (the batteries only ever lose the active drain, as the module screens say). Now the
+  "Drain" total is the sum of what each module says it draws (off = 0, idle = idle drain,
+  active = active drain x setting, all x (1 + modifier)), and the batteries lose exactly
+  that. **This makes the batteries drain faster on ships whose components carry a power
+  modifier**, by the amount the game already showed as "Actual". The "Drain (Normal)" and
+  "Drain (High)" lines remain "everything idle" / "everything active" figures, so they still
+  differ from the total in EMCON mode. (Exe patch, client and server; `tools/power/`.)
 - **A torpedo whose target dies picks the nearest thing instead** - when the
   ship a torpedo is homing on is destroyed or removed (for example by another
   torpedo), the game clears the torpedo's target, and the torpedo's homing code
@@ -746,6 +760,7 @@ non-commercial purposes, as long as you credit the original author
 
 ### 0.4.0 - 2026-10-03
 
+- **New fix:** the power drain shown on the Power screen and the power really taken from the batteries now agree: component power modifiers are applied to both, and active modules are no longer counted at idle + active (exe, client and server). Batteries drain faster on ships whose components have a power modifier.
 - **New fix:** a torpedo whose target is destroyed before impact no longer re-targets the nearest contact (a station, another weapon or you); it drifts, and can be re-targeted by hand (exe, client and server).
 - **New fix:** docking or jumping in a stand-alone (non-story) scenario no longer auto-saves over save slot 1. Only the story scenario saves (exe).
 - **New optional variant, off by default:** `--civilians-comply` makes civilians give in to a cargo demand far more readily (chance by captain style 100/90/60/15 % -> 100/90/70/35 %), counts your own torpedo still in flight as a credible threat, and no longer locks you out of hailing a civilian after one demand. See "Optional variant: civilians who give in" above.

@@ -234,11 +234,9 @@ def neutralize_relocations(data, pe, va, length, label):
         print(f"    neutralized {len(conflicts)} relocation entr{'y' if len(conflicts)==1 else 'ies'} in {label}'s patch range")
 
 
-# ============================================================
-# .ptch section setup -- adds a new PE section for the cave code below,
+# =====================================================# .ptch section setup -- adds a new PE section for the cave code below,
 # then gives it real file-backed bytes to write into
-# ============================================================
-
+# =====================================================
 def read_version_marker(data, pe, ptch_section):
     """Returns the embedded patcher version string from an existing .ptch
     section's raw data, or None if it's missing/unparseable (e.g. a build
@@ -353,10 +351,8 @@ def add_ptch_section(data):
     return new_va + IMAGE_BASE, new_raw_data_offset, CAVE_FILE_SIZE
 
 
-# ============================================================
-# Fix 1: Pirate Hunt spawn-selection bounds-check guard
-# ============================================================
-
+# =====================================================# Fix 1: Pirate Hunt spawn-selection bounds-check guard
+# =====================================================
 def fix_pirate_hunt(data, pe, ptch_va, ptch_off, cave_cursor):
     label = "Pirate Hunt crash guard"
     PATCH_SITE_VA, RESUME_VA, LOOP_EXIT_VA = 0x00408c17, 0x00408c1d, 0x00408ca3
@@ -435,10 +431,8 @@ def fix_pirate_hunt_format_string(data, pe):
     FIXES_APPLIED.append(label)
 
 
-# ============================================================
-# Fix 2: Music-track FMOD Sound leak
-# ============================================================
-
+# =====================================================# Fix 2: Music-track FMOD Sound leak
+# =====================================================
 def fix_music_leak(data, pe, ptch_va, ptch_off, cave_cursor):
     label = "Music player failure loop (FMOD Sound leak)"
     PATCH_SITE_VA, RESUME_VA, SOUND_RELEASE_VA = 0x00559fb0, 0x00559fb6, 0x005cf2dc
@@ -488,10 +482,8 @@ def fix_music_leak(data, pe, ptch_va, ptch_off, cave_cursor):
     return cave_cursor + len(cave)
 
 
-# ============================================================
-# Fix 3: correctWaypointsToFlyWith over-strict comparison
-# ============================================================
-
+# =====================================================# Fix 3: correctWaypointsToFlyWith over-strict comparison
+# =====================================================
 def fix_burnvector_strict_compare(data, pe, ptch_va, ptch_off, cave_cursor):
     label = "Burn-vector spam #1 (over-strict waypoint comparison)"
     PATCH_SITE_VA, RESUME_VA, SKIP_VA = 0x00506d2a, 0x00506d44, 0x00506d67
@@ -554,10 +546,8 @@ def fix_burnvector_strict_compare(data, pe, ptch_va, ptch_off, cave_cursor):
     return cave_cursor + len(cave)
 
 
-# ============================================================
-# Fix 4: switchTravelState per-frame recompute (pure control flow, no cave)
-# ============================================================
-
+# =====================================================# Fix 4: switchTravelState per-frame recompute (pure control flow, no cave)
+# =====================================================
 def fix_burnvector_travelstate(data, pe):
     label = "Burn-vector spam #2 (switchTravelState per-frame recompute)"
     PATCH_SITE_VA, EXIT_VA = 0x00517195, 0x00517286
@@ -577,10 +567,8 @@ def fix_burnvector_travelstate(data, pe):
     FIXES_APPLIED.append(label)
 
 
-# ============================================================
-# Fix 5: resetBurnVector numerical instability near singularity
-# ============================================================
-
+# =====================================================# Fix 5: resetBurnVector numerical instability near singularity
+# =====================================================
 def fix_burnvector_singularity(data, pe, ptch_va, ptch_off, cave_cursor):
     label = "Burn-vector spam #3 (numerical instability / singularity)"
     PATCH_SITE_VA, RESUME_VA = 0x005170b7, 0x005170bf
@@ -642,12 +630,10 @@ def fix_burnvector_singularity(data, pe, ptch_va, ptch_off, cave_cursor):
     return cave_cursor + len(cave)
 
 
-# ============================================================
-# Fix 6: Structure::getRoom logs an ERROR for a nonexistent room id even
+# =====================================================# Fix 6: Structure::getRoom logs an ERROR for a nonexistent room id even
 # when a caller is only probing whether one exists (pure control flow,
 # no cave)
-# ============================================================
-
+# =====================================================
 def fix_unknown_room_spam(data, pe):
     label = "\"Unknown room\" log spam cycling past a ship's last room"
     PATCH_SITE_VA, EXIT_VA = 0x0055a79d, 0x0055a7b9
@@ -679,16 +665,14 @@ def fix_unknown_room_spam(data, pe):
     FIXES_APPLIED.append(label)
 
 
-# ============================================================
-# Fix 7: PDA-open crash guard -- ignore the "open tablet" command while a
+# =====================================================# Fix 7: PDA-open crash guard -- ignore the "open tablet" command while a
 # character's head-overlay portrait is mid-render (see BUG-009: the actual
 # crash is a missing null-check inside libcocos2d.dll's batch renderer when
 # two render-to-texture passes collide in the same frame; rather than patch
 # the third-party engine DLL, this closes the only known trigger from the
 # ois.exe side -- a one-byte reentrancy flag set for the duration of each
 # character's portrait refresh, checked at the top of showTablet)
-# ============================================================
-
+# =====================================================
 def fix_pda_render_guard(data, pe, ptch_va, ptch_off, cave_cursor):
     label = "PDA-open crash guard (ignore Tab while a character portrait is mid-render)"
     SET_SITE_VA, SET_RESUME_VA = 0x00537cb0, 0x00537cb5
@@ -797,8 +781,7 @@ def fix_pda_render_guard(data, pe, ptch_va, ptch_off, cave_cursor):
     return cave_cursor + len(cave)
 
 
-# ============================================================
-# Fix 8: mail/PC terminal DEL command crash when the argument has no
+# =====================================================# Fix 8: mail/PC terminal DEL command crash when the argument has no
 # extension (e.g. "DEL NEWS"). The original DEL handler, on a name match,
 # unconditionally reads the extension token (token[1]) of the split
 # argument -- past the end of a one-element vector when no ".EXT" was
@@ -811,8 +794,7 @@ def fix_pda_render_guard(data, pe, ptch_va, ptch_off, cave_cursor):
 # History: releases 0.3.0 through 0.3.8 also made DEL able to
 # delete COM commands. That was a regression -- the original game never
 # deleted anything -- and has been removed.
-# ============================================================
-
+# =====================================================
 def _emit_vector_count_gt1_check(emit, ebp_end=0xD8, ebp_begin=0xD4):
     """Emit: eax = (vec_end - vec_begin) / 24 ; cmp eax, 1 (flags for jbe)."""
     emit(bytes([0x8B, 0x4D, ebp_end]))                 # mov ecx,[ebp-0x28]
@@ -958,8 +940,7 @@ def fix_del_command(data, pe, ptch_va, ptch_off, cave_cursor):
     return cave_cursor
 
 
-# ============================================================
-# Fix 10: Full Stop, while docked, silently undocks the ship in every
+# =====================================================# Fix 10: Full Stop, while docked, silently undocks the ship in every
 # system's eyes except the game's own dock/undock bookkeeping (BUG-022).
 # Ship::allStop unconditionally clears the docking-process state field as
 # part of "come to a stop" -- every system gated on the general
@@ -971,8 +952,7 @@ def fix_del_command(data, pe, ptch_va, ptch_off, cave_cursor):
 # (checked via ship+0x178, the real docked-with pointer, confirmed via live
 # repro to stay unchanged throughout the exploit) -- every other caller of
 # allStop on a genuinely non-docked ship is unaffected.
-# ============================================================
-
+# =====================================================
 def fix_allstop_docked_writeguard(data, pe, ptch_va, ptch_off, cave_cursor):
     label = "Full Stop while docked silently undocks the ship (no fee/permission/airlock check)"
     PATCH_SITE_VA, RESUME_VA = 0x00519666, 0x00519670
@@ -1015,8 +995,7 @@ def fix_allstop_docked_writeguard(data, pe, ptch_va, ptch_off, cave_cursor):
     return cave_cursor + len(cave)
 
 
-# ============================================================
-# Fix 11: a save (or hand-edited ship data) referencing a module identifier
+# =====================================================# Fix 11: a save (or hand-edited ship data) referencing a module identifier
 # that no longer resolves -- e.g. the pre-rename LADAR ids this same
 # project's own BUG-018 fix renamed -- crashes on load, or (with only half
 # this fix applied) hangs instead (BUG-023). Two independent bugs, both
@@ -1036,8 +1015,7 @@ def fix_allstop_docked_writeguard(data, pe, ptch_va, ptch_off, cave_cursor):
 #
 # Fixing both: the ship simply loads with that one module slot left empty,
 # everything else -- remaining modules, contracts, gameplay -- unaffected.
-# ============================================================
-
+# =====================================================
 def fix_readshipmodule_unresolvable_identifier(data, pe, ptch_va, ptch_off, cave_cursor):
     label = "Save-load crash/hang when a module identifier no longer resolves"
 
@@ -1132,8 +1110,7 @@ def fix_readshipmodule_unresolvable_identifier(data, pe, ptch_va, ptch_off, cave
     return cave_cursor
 
 
-# ============================================================
-# Fix 12: Commodities Trading Terminal shows a garbled "not enough pod
+# =====================================================# Fix 12: Commodities Trading Terminal shows a garbled "not enough pod
 # space" error for a good that needs a special cargo pod (radiation-shielded
 # or temperature-controlled) when there isn't enough free space in it.
 #
@@ -1158,8 +1135,7 @@ def fix_readshipmodule_unresolvable_identifier(data, pe, ptch_va, ptch_off, cave
 # [base_reg + index_reg*4] dereference -- no embedded absolute address, so
 # no new relocation entry needed) that pushes the two values in the
 # corrected order. See BUGS.md BUG-029 and docs/trading-terminal.md.
-# ============================================================
-
+# =====================================================
 def fix_trade_pod_error_args(data, pe, ptch_va, ptch_off, cave_cursor):
     label = "Trading terminal garbled error when a shielded/temp-controlled good won't fit"
     TABLE_VA = 0x005dfa98  # pod-type-name string lookup table
@@ -1253,8 +1229,7 @@ def fix_trade_pod_error_args(data, pe, ptch_va, ptch_off, cave_cursor):
     return cave_cursor
 
 
-# ============================================================
-# Fix 13: "Quit to OS"/"Quit to Menu" never actually close/exit the game
+# =====================================================# Fix 13: "Quit to OS"/"Quit to Menu" never actually close/exit the game
 # when connected as a LAN client -- the pause-menu click handler
 # (Screen_Custom::clickOnObject) routes every command to the server while
 # networked, and QUIT_TO_MENU/QUIT_TO_OS were never carved out of that
@@ -1272,8 +1247,7 @@ def fix_trade_pod_error_args(data, pe, ptch_va, ptch_off, cave_cursor):
 # into the same local-dispatch path the function already uses when not
 # networked at all. Every other command id falls through to the original
 # send-to-server behavior, byte for byte unchanged. See BUGS.md BUG-012.
-# ============================================================
-
+# =====================================================
 def fix_quit_networked_disconnect(data, pe, ptch_va, ptch_off, cave_cursor):
     label = "Quit to OS/Menu never closes the game while connected as a LAN client"
     PATCH_SITE_VA = 0x005461bc
@@ -1362,8 +1336,7 @@ def fix_quit_networked_disconnect(data, pe, ptch_va, ptch_off, cave_cursor):
     return cave_cursor
 
 
-# ============================================================
-# Fix 14: client crashes intermittently while dragging an installed addon
+# =====================================================# Fix 14: client crashes intermittently while dragging an installed addon
 # from one component's addon slot onto another slot in the engineering
 # repair screen. ShipInterface::doEngMoveComponent bounds-checks its
 # destination slot index but not its source, which UI_ModuleRepair::
@@ -1378,8 +1351,7 @@ def fix_quit_networked_disconnect(data, pe, ptch_va, ptch_off, cave_cursor):
 # reject cleanly, no error message, no sound -- not a feature add, just
 # closing the same gap the destination side was already closed on. See
 # BUGS.md BUG-027 and docs/module-repair-system.md.
-# ============================================================
-
+# =====================================================
 def fix_addon_move_oob(data, pe, ptch_va, ptch_off, cave_cursor):
     label = "Crash dragging an installed addon between module slots (repair screen)"
     PATCH_SITE_VA = 0x004e103b
@@ -1424,8 +1396,7 @@ def fix_addon_move_oob(data, pe, ptch_va, ptch_off, cave_cursor):
     return cave_cursor
 
 
-# ============================================================
-# Fix 15: deleting an email in the PC terminal's MAIL app (D, D) then
+# =====================================================# Fix 15: deleting an email in the PC terminal's MAIL app (D, D) then
 # quitting (Q) leaves a frozen copy of the email list above the CMD> prompt,
 # with the just-deleted email back at the top. TextEngine::showList stashes
 # the terminal's display lines into a backup vector before drawing a list,
@@ -1435,8 +1406,7 @@ def fix_addon_move_oob(data, pe, ptch_va, ptch_off, cave_cursor):
 # which Q then "restored". Fix: skip the stash while the backup still holds
 # an unrestored scrollback (non-empty; finishShowingList always empties it).
 # See BUGS.md BUG-021.
-# ============================================================
-
+# =====================================================
 def fix_showlist_backup_clobber(data, pe, ptch_va, ptch_off, cave_cursor):
     label = "Deleted email reappears in the MAIL terminal after quitting"
     PATCH_SITE_VA = 0x0042cffc
@@ -1488,8 +1458,7 @@ def fix_showlist_backup_clobber(data, pe, ptch_va, ptch_off, cave_cursor):
     return cave_cursor
 
 
-# ============================================================
-# Fix 16: the last row of the Input Configuration key-binding list (PDA and
+# =====================================================# Fix 16: the last row of the Input Configuration key-binding list (PDA and
 # main menu -- "Decrease Main Drive Power") can never be scrolled into view.
 # UI_Sheet's row count (this+0x440) is height/12 minus the selecttext prompt
 # row, but render spends row 0 on the titles header while every scroll check
@@ -1497,8 +1466,7 @@ def fix_showlist_backup_clobber(data, pe, ptch_va, ptch_off, cave_cursor):
 # subtract the header row in the constructor too (in place), and have
 # render's row loop run one extra row when there's a header (small cave).
 # See BUGS.md BUG-030 (GitHub issue #27).
-# ============================================================
-
+# =====================================================
 def fix_sheet_last_row(data, pe, ptch_va, ptch_off, cave_cursor):
     label = "Last key binding hidden in the Input Configuration list"
 
@@ -1567,14 +1535,12 @@ def fix_sheet_last_row(data, pe, ptch_va, ptch_off, cave_cursor):
     return cave_cursor
 
 
-# ============================================================
-# Fix 17: once Fix 16 makes it visible, the "Decrease Main Drive Power" key
+# =====================================================# Fix 17: once Fix 16 makes it visible, the "Decrease Main Drive Power" key
 # binding label sits one character right of every other row -- an original
 # typo, a stray space after its colour code. Rewritten in place without it
 # (pure data, same byte span). Keybinds are saved by key code, not label,
 # so existing bindings are unaffected. See BUGS.md BUG-030.
-# ============================================================
-
+# =====================================================
 def fix_decrease_drive_label(data, pe):
     label = "Stray space in the \"Decrease Main Drive Power\" key binding label"
     STR_VA = 0x00620ba4
@@ -1588,8 +1554,7 @@ def fix_decrease_drive_label(data, pe):
     FIXES_APPLIED.append(label)
 
 
-# ============================================================
-# Fix 22: module purchase emails are never sent.
+# =====================================================# Fix 22: module purchase emails are never sent.
 # Every module data file can carry an `email=` text ("Congratulations on
 # purchasing your Kruger Interstellar DRAK Grappling Arm! ..."; 71 of them
 # ship in the game). DataLoader::createModule stores it in the module class
@@ -1604,8 +1569,7 @@ def fix_decrease_drive_label(data, pe):
 # with no email text are skipped. Nothing here references an absolute
 # address, so it is ASLR-safe: only relative calls to functions and a
 # position-independent format string.
-# ============================================================
-
+# =====================================================
 def fix_module_purchase_email(data, pe, ptch_va, ptch_off, cave_cursor):
     label = "Module purchase emails are never sent"
     SITE_VA, RESUME_VA = 0x00495ad8, 0x00495add
@@ -1697,8 +1661,7 @@ def fix_module_purchase_email(data, pe, ptch_va, ptch_off, cave_cursor):
     return cave_cursor + len(cave)
 
 
-# ============================================================
-# Fix 18: clicking the posters in the Ceres Mk III cabin (or the desk PC in
+# =====================================================# Fix 18: clicking the posters in the Ceres Mk III cabin (or the desk PC in
 # the Enceladus cabin, or the Proxima's equivalent) zooms the camera in, but
 # the scroll wheel can't zoom back out. Those are the game's only
 # cameraclick=true objects: they move the camera without focusing a screen,
@@ -1708,8 +1671,7 @@ def fix_module_purchase_email(data, pe, ptch_va, ptch_off, cave_cursor):
 # Rewrites a 72-byte block in place (no cave): room comes from replacing a
 # 24-byte stack build of the cursor Vec2 argument with two PUSHes. See
 # BUGS.md BUG-031 (GitHub issue #24).
-# ============================================================
-
+# =====================================================
 def fix_scroll_back_cameraclick(data, pe):
     label = "Scroll wheel can't zoom back out of cabin close-ups"
     SITE_VA = 0x0053220f
@@ -1772,8 +1734,7 @@ def fix_scroll_back_cameraclick(data, pe):
     FIXES_APPLIED.append(label)
 
 
-# ============================================================
-# Fix 19: clicking a monitor right after the player ship's Primary Hull is
+# =====================================================# Fix 19: clicking a monitor right after the player ship's Primary Hull is
 # destroyed crashes the game. PresentationInterface::moveToCameraPos hands
 # the newly focused screen to a LogSystem reached through
 # *(g_gameData+0xd0), which is null once the ship is destroyed; two of its
@@ -1783,8 +1744,7 @@ def fix_scroll_back_cameraclick(data, pe):
 # both, exactly what the two already-guarded sites do. Both rewritten in
 # place; at site 2 a reloc'd g_gameData reload becomes PUSH/POP EDX and its
 # reloc entry is neutralized. See BUGS.md BUG-034 (GitHub issue #22).
-# ============================================================
-
+# =====================================================
 def fix_movecamera_null_ship(data, pe):
     label = "Crash clicking a monitor after the ship is destroyed"
     RENDER_WARNING_VA = 0x00528e60
@@ -1859,16 +1819,14 @@ def fix_movecamera_null_ship(data, pe):
     FIXES_APPLIED.append(label)
 
 
-# ============================================================
-# Fix 20: while docking, the ship-status monitor draws "docking" and
+# =====================================================# Fix 20: while docking, the ship-status monitor draws "docking" and
 # "stationary" on top of each other. The Status: line is five mutually
 # exclusive labels; ShipData::checkIsStationary (speed == 0) stepped aside
 # for docked and in-orbit but not for the docking phase. Fix: rewrite its
 # 25-byte dock/orbit test in place so it also steps aside while docking
 # (Ship+0xf8 == 1); undocking keeps its old behaviour. See BUGS.md BUG-035
 # (GitHub issue #23).
-# ============================================================
-
+# =====================================================
 def fix_stationary_while_docking(data, pe):
     label = "\"Docking\" and \"stationary\" overlap on the ship status screen"
     SITE_VA, FALSE_VA, CONT_VA = 0x004cf671, 0x004cf6a0, 0x004cf68a
@@ -1899,8 +1857,7 @@ def fix_stationary_while_docking(data, pe):
     FIXES_APPLIED.append(label)
 
 
-# ============================================================
-# Fix 21 (0.3.9; replaces 0.3.8's fix_board_docked_sound +
+# =====================================================# Fix 21 (0.3.9; replaces 0.3.8's fix_board_docked_sound +
 # fix_changedetails_beep, which silenced station-terminal beeps): on a
 # station, some sounds were inaudible depending on whether you'd loaded the
 # save there or had visited your own ship (Admin Terminal typing clicks and
@@ -1912,8 +1869,7 @@ def fix_stationary_while_docking(data, pe):
 # *(g_gameData+0xd0). In flight all three are the same ship; other ships'
 # sounds are still filtered; the networked branch is untouched. PIC; no new
 # relocs. See BUGS.md BUG-033 (GitHub issue #21).
-# ============================================================
-
+# =====================================================
 def fix_ship_sound_listener(data, pe, ptch_va, ptch_off, cave_cursor):
     label = "Station sounds inaudible depending on where you've been (terminal beeps / typing clicks)"
     SITE_VA, PLAY_VA, SKIP_VA = 0x00559d20, 0x00559d28, 0x00559d41
@@ -1963,8 +1919,7 @@ def fix_ship_sound_listener(data, pe, ptch_va, ptch_off, cave_cursor):
     return cave_cursor
 
 
-# ============================================================
-# Fix 9: Pirate Hunt spawn-selection bounds-check guard -- ois_server.exe
+# =====================================================# Fix 9: Pirate Hunt spawn-selection bounds-check guard -- ois_server.exe
 # copy of the same bug as fix_pirate_hunt above. ois.exe and ois_server.exe
 # both compile GameLogic::resetShipsInScenario; the missing bounds-check
 # exists in both binaries at different absolute addresses. Singleplayer
@@ -1975,8 +1930,7 @@ def fix_ship_sound_listener(data, pe, ptch_va, ptch_off, cave_cursor):
 # marker -- since it's a completely different binary.
 
 
-# ============================================================
-# Fix 23: docking at a station (or jumping) in any scenario other than the story
+# =====================================================# Fix 23: docking at a station (or jumping) in any scenario other than the story
 # campaign overwrites save slot 1.  SaveHandler::saveGame only checks that a
 # game is loaded and that the scenario's mode is "full" (== 2).  Plenty of
 # stand-alone scenarios (Convoy Attack, Survival, Stealth, Escape, Defend, the
@@ -1987,8 +1941,7 @@ def fix_ship_sound_listener(data, pe, ptch_va, ptch_off, cave_cursor):
 # Fix: also require the story category before saving.  Skipping the save also
 # skips the Stats::storeStats call that follows it, so statistics from
 # non-story scenarios are no longer persisted at those moments.
-# ============================================================
-
+# =====================================================
 def fix_scenario_autosave(data, pe, ptch_va, ptch_off, cave_cursor):
     label = "Docking in a non-story scenario overwrites save slot 1"
     SITE_VA = 0x004B8789                       # SaveHandler::saveGame, the scenario-mode guard
@@ -2110,8 +2063,7 @@ def fix_torpedo_lost_target(data, pe, ptch_va, ptch_off, cave_cursor, server=Fal
     return cave_cursor
 
 
-# ============================================================
-# OPTIONAL VARIANT (--pds-everything): the point-defence system shoots
+# =====================================================# OPTIONAL VARIANT (--pds-everything): the point-defence system shoots
 # everything in range.  Not applied by default -- it changes gameplay balance
 # and is not a bug fix; it is here for people who want a PDS that works.
 #
@@ -2136,8 +2088,7 @@ def fix_torpedo_lost_target(data, pe, ptch_va, ptch_off, cave_cursor, server=Fal
 # Caves generated by tools/pds/asm_pds.py (assembly source lives there); every
 # external target is a rel32 resolved here, so nothing is absolute / relocated.
 # Client and server share the code layout, only the addresses differ.
-# ============================================================
-
+# =====================================================
 FILTER_CAVE = bytes.fromhex(
     "84db0f84a76ddaff8b815402000085c00f84216edaff8b805801000080fb0274"
     "3485c00f850e6edaff8b4140807834000f85016edaff83b9d4000000030f856c"
@@ -2207,6 +2158,79 @@ def describe_variants(tags):
     names = {PDS_VARIANT_TAG: "PDS variant", CIV_VARIANT_TAG: "civilian-demands variant"}
     found = [names[t] for t in (PDS_VARIANT_TAG, CIV_VARIANT_TAG) if t in tags]
     return " + ".join(found) if found else "standard build"
+
+
+def fix_power_drain_modifier(data, pe, ptch_va, ptch_off, cave_cursor, server=False):
+    label = "Power drain: component power modifiers ignored, active modules counted twice" + (" (server)" if server else "")
+    applied, skipped = (SERVER_FIXES_APPLIED, SERVER_FIXES_SKIPPED) if server else (FIXES_APPLIED, FIXES_SKIPPED)
+
+    def bail():
+        skipped.append(label)
+        return cave_cursor
+
+    if server:
+        TOTAL, CURRENT, DRAIN, MODIFIER, DRAW = 0x00522BE0, 0x004AE1B0, 0x004AE120, 0x00438020, 0x00521A50
+    else:
+        TOTAL, CURRENT, DRAIN, MODIFIER, DRAW = 0x005246B0, 0x004AE2F0, 0x004AE260, 0x00438200, 0x00523520
+    # SystemManager::totalPowerDrain, ShipModule::getCurrentPowerDrain, ShipModule::drainPower,
+    # ComponentInterfaceInstance::getPowerModifier, SystemManager::drawPower
+    for va, head, what in ((TOTAL, "568B714033C0578B793C0F57C92BF7C1FE0285F6", "totalPowerDrain"),
+                           (CURRENT, "558BEC83EC08807963007507", "getCurrentPowerDrain"),
+                           (DRAIN, "558BEC83E4F851568BF1807E6300", "drainPower"),
+                           (MODIFIER, "558BEC83EC0C8B11", "getPowerModifier")):
+        if verify_site(data, pe, va, bytes.fromhex(head), f"{label} ({what})") is None:
+            return bail()
+    CALLS = (DRAIN + 0x4A, DRAIN + 0x72)                       # the two `CALL drawPower` in drainPower
+    for va in CALLS:
+        if verify_site(data, pe, va, b"\xE8", f"{label} (draw call)") is None or _rel32_target(data, pe, va, 1) != DRAW:
+            print(f"  [SKIP] {label}: drainPower does not call drawPower where expected")
+            return bail()
+    for site, length in ((TOTAL, 5), (CALLS[0], 5), (CALLS[1], 5)):
+        neutralize_relocations(data, pe, site, length, label)
+
+    def rel(cave, at, target, opcode_len):
+        return struct.pack("<i", target - (cave + at + opcode_len + 4))
+
+    cave_va = ptch_va + cave_cursor
+    # ---- totalPowerDrain: the sum of every module's own current drain (ShipModule::getCurrentPowerDrain:
+    #      nothing if switched off, the idle drain if idle, the active drain x setting if active, all
+    #      times 1 + the component power modifier) -- exactly the figures the module screens and the
+    #      terminal's POWER DRAIN list show.
+    t = bytearray(bytes.fromhex("56" "57" "53"                       # PUSH ESI / EDI / EBX
+                                "8B793C" "8B7140" "2BF7" "C1FE02"   # EDI = first module, ESI = count
+                                "83EC04" "0F57C0" "F30F110424"       # [ESP] = 0.0 (running total)
+                                "33DB"))                             # EBX = 0
+    loop = len(t)
+    t += bytes.fromhex("3BDE") + b"\x73\x00"                         # CMP EBX,ESI / JAE done
+    jae = len(t) - 1
+    t += bytes.fromhex("8B0C9F")                                     # MOV ECX,[EDI+EBX*4]
+    t += b"\xE8" + rel(cave_va, len(t), CURRENT, 1)                  # CALL getCurrentPowerDrain
+    t += bytes.fromhex("F30F580424" "F30F110424" "43")                # total += XMM0 / INC EBX
+    t += b"\xEB" + bytes([(loop - (len(t) + 2)) & 0xFF])             # JMP loop
+    t[jae] = len(t) - (jae + 1)
+    t += bytes.fromhex("F30F100424" "83C404" "5B" "5F" "5E" "C3")    # XMM0 = total / POP / RET
+    total_va = cave_va
+    cave_va += len(t)
+    # ---- drainPower: what is actually taken from the batteries also gets the (1 + modifier)
+    d = bytes.fromhex("83EC08" "F30F110C24" "51"                      # save the amount (XMM1) and ECX
+                      "8B4E0C")                                      # ECX = this->components
+    d += b"\xE8" + rel(cave_va, len(d), MODIFIER, 1)                 # CALL getPowerModifier
+    d += bytes.fromhex("59" "B8" "0000803F" "660F6ED0" "F30F58C2"     # POP ECX / XMM0 = 1 + modifier
+                       "F30F100C24" "F30F59C8" "83C408")             # XMM1 = amount * (1 + modifier)
+    d += b"\xE9" + rel(cave_va, len(d), DRAW, 1)                     # JMP drawPower
+    draw_va = cave_va
+    body = bytes(t + d)
+    data[ptch_off + cave_cursor: ptch_off + cave_cursor + len(body)] = body
+    cave_cursor += len(body)
+
+    off = va_to_offset(pe, TOTAL)
+    data[off:off + 5] = b"\xE9" + struct.pack("<i", total_va - (TOTAL + 5))
+    for va in CALLS:
+        off = va_to_offset(pe, va)
+        data[off:off + 5] = b"\xE8" + struct.pack("<i", draw_va - (va + 5))
+    print(f"  [OK] {label}")
+    applied.append(label)
+    return cave_cursor
 
 
 def _rel32_target(data, pe, va, opcode_len):
@@ -2310,8 +2334,7 @@ def fix_pds_target_everything(data, pe, ptch_va, ptch_off, cave_cursor, server=F
 
 
 
-# ============================================================
-# OPTIONAL VARIANT (--civilians-comply): civilians give in to a cargo demand far
+# =====================================================# OPTIONAL VARIANT (--civilians-comply): civilians give in to a cargo demand far
 # more readily, and can be hailed again afterwards.  Not applied by default.
 #
 # From the decompiled ShipBehaviour::respondToPirateDemand (called when you pick
@@ -2336,8 +2359,7 @@ def fix_pds_target_everything(data, pe, ptch_va, ptch_off, cave_cursor, server=F
 #   3. the registration is no longer added to that list, so you can hail again
 # The rolls, the IFF-on rule, the distance penalties and everything pirates and
 # authorities do are untouched.  Client and server share the layout.
-# ============================================================
-
+# =====================================================
 CIVILIAN_TORPEDO_CAVE = bytes.fromhex(
     "8b45088b402485c00f848a0000008bb8cc0000008b98d00000008b4e6cf20f10"
     "6128660f5ae4f20f106930660f5aedb800247447660f6ec839df745c8b0f83c7"
@@ -2414,8 +2436,7 @@ def fix_civilians_comply(data, pe, ptch_va, ptch_off, cave_cursor, server=False)
     return cave_cursor
 
 
-# ============================================================
-
+# =====================================================
 def fix_pirate_hunt_server(data, pe, ptch_va, ptch_off, cave_cursor):
     label = "Pirate Hunt crash guard (server)"
     PATCH_SITE_VA, RESUME_VA, LOOP_EXIT_VA = 0x00408947, 0x0040894d, 0x004089d3
@@ -2546,6 +2567,7 @@ def patch_server_exe(exe_path):
         cave_cursor = fix_pds_target_everything(data, pe, ptch_va, ptch_off, cave_cursor, server=True)
     if CIV_VARIANT:
         cave_cursor = fix_civilians_comply(data, pe, ptch_va, ptch_off, cave_cursor, server=True)
+    cave_cursor = fix_power_drain_modifier(data, pe, ptch_va, ptch_off, cave_cursor, server=True)
     pe.close()
 
     if cave_cursor > ptch_size:
@@ -2559,13 +2581,11 @@ def patch_server_exe(exe_path):
     return True
 
 
-# ============================================================
-# Data-only mod install (scenario typo, dead hair tokens, mesh typo --
+# =====================================================# Data-only mod install (scenario typo, dead hair tokens, mesh typo --
 # see apply_data_fixes.py; generated from the user's own game files
 # rather than shipped as full copies, since those are Flat Earth
 # Games' own copyrighted content, not this project's)
-# ============================================================
-
+# =====================================================
 def find_bundled_mod_dir():
     """Look for mod/oisbugfix next to this script first (how it's meant to
     ship); also check two levels up, in case this script is nested a
@@ -2604,8 +2624,7 @@ def install_mod(exe_path):
     return apply_data_fixes.install(exe_path.parent, mod_src)
 
 
-# ============================================================
-# Game install discovery
+# =====================================================# Game install discovery
 #
 # Ported from Patch_OIS.bat's :DetectTarget / :ScanSteamRoot /
 # :TryLibrary, with the same search order, plus the things batch made
@@ -2622,8 +2641,7 @@ def install_mod(exe_path):
 #   - every candidate is collected rather than stopping at the first
 #     hit, so two installs produce a question instead of a silent
 #     coin-flip about which one gets patched.
-# ============================================================
-
+# =====================================================
 GAME_EXE_NAME = "ois.exe"
 STEAM_APP_ID = "824070"
 STEAM_DEFAULT_DIR_NAME = "Objects in Space"
@@ -2920,15 +2938,13 @@ def resolve_game_dir(explicit=None):
     return _prompt_for_dir()
 
 
-# ============================================================
-# Install state: inspect, restore, uninstall
+# =====================================================# Install state: inspect, restore, uninstall
 #
 # The exe already carries an embedded version marker (see
 # VERSION_MARKER_* and read_version_marker), so "what is installed
 # right now" is a question the file itself can answer -- nothing here
 # relies on a sidecar receipt that can drift out of sync with reality.
-# ============================================================
-
+# =====================================================
 PATCHABLE_EXES = ("ois.exe", "ois_server.exe")
 MOD_DIR_RELATIVE = ("ObjectsInSpace", "mods", "oisbugfix")
 BACKUP_SUFFIX = ".original-backup"
@@ -3362,8 +3378,7 @@ def prepare_for_patch(client_exe, force=False, assume_yes=False):
     return "patch"
 
 
-# ============================================================
-# Self-update
+# =====================================================# Self-update
 #
 # Two hard constraints shape this:
 #
@@ -3376,8 +3391,7 @@ def prepare_for_patch(client_exe, force=False, assume_yes=False):
 #   2. Pulling is running someone else's new code on the user's
 #      machine. That gets asked about, not assumed. --yes deliberately
 #      does NOT imply consent here; --update does.
-# ============================================================
-
+# =====================================================
 REPO_URL = ""  # e.g. "https://github.com/you/ois-patcher" -- shown when git isn't usable
 UPDATED_ENV = "OIS_PATCHER_SELF_UPDATED"  # re-exec guard: one update per invocation
 
@@ -3489,10 +3503,8 @@ def check_for_updates(assume_update=False):
     sys.exit(result.returncode)
 
 
-# ============================================================
-# main
-# ============================================================
-
+# =====================================================# main
+# =====================================================
 def main():
     parser = argparse.ArgumentParser(
         description="Unofficial Objects in Space (ois.exe) bugfix patcher",
@@ -3672,6 +3684,7 @@ def main():
         cave_cursor = fix_pds_target_everything(data, pe, ptch_va, ptch_off, cave_cursor)
     if CIV_VARIANT:
         cave_cursor = fix_civilians_comply(data, pe, ptch_va, ptch_off, cave_cursor)
+    cave_cursor = fix_power_drain_modifier(data, pe, ptch_va, ptch_off, cave_cursor)
     pe.close()
 
     if cave_cursor > ptch_size:
