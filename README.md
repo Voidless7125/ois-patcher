@@ -690,6 +690,10 @@ before:
 This is **not a bug fix and is off by default.** It changes gameplay balance, so
 it is a separate opt-in rather than part of the standard patch.
 
+Without the flag this branch applies the same point-defence fix as `master` (the laser can destroy
+torpedoes, and still only shoots ships with their IFF off). With the flag, the variant below
+**replaces** that fix; the two are never applied together.
+
 ```
 python ois_patcher.py --pds-everything
 ```
