@@ -355,7 +355,7 @@ def add_ptch_section(data):
     sec_hdr_off = ptch_section.get_file_offset()
     pe2.close()
 
-    CAVE_FILE_SIZE = 0x800
+    CAVE_FILE_SIZE = 0x1000 if (PDS_VARIANT or CIV_VARIANT) else 0x800   # the optional variants' caves need more room
     new_raw_data_offset = len(data)
     if new_raw_data_offset % file_align != 0:
         data.extend(b"\x00" * (file_align - (new_raw_data_offset % file_align)))
@@ -2045,6 +2045,97 @@ def fix_scenario_autosave(data, pe, ptch_va, ptch_off, cave_cursor):
 
 
 # ============================================================
+# Personal-variants fix: a torpedo whose target is destroyed before it hits no
+# longer re-targets the nearest contact (a station, another weapon or you); it
+# drifts and can be re-targeted by hand.  Not on master: the upstream maintainer
+# points to a developer video where a torpedo that lost its target circled back
+# to its own ship, so the stock behaviour may be intended.
+# ============================================================
+
+def fix_torpedo_lost_target(data, pe, ptch_va, ptch_off, cave_cursor, server=False):
+    label = "Torpedo whose target dies re-targets the nearest contact" + (" (server)" if server else "")
+    applied, skipped = _fix_lists(server)
+
+
+    # Weapon::runHomeLogic (the torpedo's homing code) and GameLogic::entirelyRemoveShip
+    HOME = 0x0051C790 if server else 0x0051D280
+    REMOVE_SITE = 0x0040D6BB if server else 0x0040D98B
+    ACQUIRE_SITE, AIM_CALL, AFTER_ACQUIRE = HOME + 0x6C, HOME + 0x918, HOME + 0x8D1
+    # 1. runHomeLogic: `if (target == 0) pick the nearest sensor contact` -- stock behaviour once a target is gone
+    if verify_site(data, pe, ACQUIRE_SITE, bytes.fromhex("39878C0300000F85"), label + " (target test)") is None:
+        return bail(label, cave_cursor, server)
+    if verify_site(data, pe, AFTER_ACQUIRE, bytes.fromhex("8B8788030000F30F1005"), label + " (after acquisition)") is None:
+        return bail(label, cave_cursor, server)
+    # 2. the aim call that follows it
+    if verify_site(data, pe, AIM_CALL - 2, bytes.fromhex("8BCFE8"), label + " (aim call)") is None:
+        return bail(label, cave_cursor, server)
+    # 3. entirelyRemoveShip: the weapon loop that zeroes a torpedo's target when that ship is removed
+    if verify_site(data, pe, REMOVE_SITE - 8, bytes.fromhex("39838C030000750AC7838C03000000000000"),
+                   label + " (target cleared on removal)") is None:
+        return bail(label, cave_cursor, server)
+    PRESENT = _rel32_target(data, pe, ACQUIRE_SITE + 6, 2)       # the original `JNE <has a target>`
+    AIM_FUNC = _rel32_target(data, pe, AIM_CALL, 1)              # Weapon::runAimLogic
+    if verify_site(data, pe, AIM_FUNC, bytes.fromhex("558BEC6AFF68"), label + " (aim function)") is None:
+        return bail(label, cave_cursor, server)
+    CONTINUE = REMOVE_SITE + 10
+    for site, length in ((ACQUIRE_SITE, 12), (AIM_CALL, 5), (REMOVE_SITE, 10)):
+        neutralize_relocations(data, pe, site, length, label)
+
+    NO_AIM = bytes.fromhex("003C1CC6")                            # -9999.0f, the game's "no aim point" value
+    cave_va = ptch_va + cave_cursor
+    # ---- A: runHomeLogic's target test.  A torpedo whose target was destroyed carries the marker
+    #         byte 2 in its "have contact" flag [+0x3DC]; it does not go looking for a new victim.
+    a = bytearray(bytes.fromhex("39878C030000"))                  # CMP [EDI+0x38C],EAX   (EAX = 0)
+    a += b"\x0F\x85" + _rel32(cave_va, len(a), PRESENT, 2)           # JNE <has a target>
+    a += bytes.fromhex("80BFDC03000002")                          # CMP BYTE [EDI+0x3DC],2
+    a += b"\x0F\x84" + _rel32(cave_va, len(a), AFTER_ACQUIRE, 2)     # JE  <skip acquisition>
+    a += b"\xE9" + _rel32(cave_va, len(a), ACQUIRE_SITE + 12, 1)      # JMP <stock acquisition>
+    a_va = cave_va
+    cave_va += len(a)
+    # ---- B: runHomeLogic's call to runAimLogic.  A torpedo that lost its target and has no new aim
+    #         point does not steer or thrust (the same idle state runTravelLogic uses), so it drifts.
+    b = bytearray()
+    b += bytes.fromhex("83B98C03000000")                          # CMP DWORD [ECX+0x38C],0
+    jne1 = len(b); b += b"\x75\x00"
+    b += bytes.fromhex("80B9DC03000002")                          # CMP BYTE [ECX+0x3DC],2
+    jne2 = len(b); b += b"\x75\x00"
+    b += bytes.fromhex("81B92C010000") + NO_AIM                   # CMP DWORD [ECX+0x12C],-9999.0f
+    jne3 = len(b); b += b"\x75\x00"
+    b += bytes.fromhex("81B930010000") + NO_AIM                   # CMP DWORD [ECX+0x130],-9999.0f
+    jne4 = len(b); b += b"\x75\x00"
+    b += bytes.fromhex("8B4140" "8B10" "85D2" "7404" "C6426200")   # engine slot 0 off, if present
+    b += bytes.fromhex("8B4010" "85C0" "7404" "C6406200")          # engine slot 0x10 off, if present
+    b += bytes.fromhex("C20800")                                  # RET 8  (runAimLogic is callee-cleaned)
+    orig = len(b)
+    for j in (jne1, jne2, jne3, jne4):
+        b[j + 1] = orig - (j + 2)
+    b += b"\xE9" + _rel32(cave_va, len(b), AIM_FUNC, 1)              # JMP runAimLogic
+    b_va = cave_va
+    cave_va += len(b)
+    # ---- C: the weapon loop in entirelyRemoveShip.  Stock zeroes the target; also mark the torpedo
+    #         "target lost" and clear its aim point, so A and B above recognise it.
+    c = bytearray(bytes.fromhex("C7838C030000" "00000000"))       # MOV DWORD [EBX+0x38C],0
+    c += bytes.fromhex("C683DC03000002")                          # MOV BYTE [EBX+0x3DC],2
+    c += bytes.fromhex("C7832C010000") + NO_AIM                   # MOV DWORD [EBX+0x12C],-9999.0f
+    c += bytes.fromhex("C78330010000") + NO_AIM                   # MOV DWORD [EBX+0x130],-9999.0f
+    c += b"\xE9" + _rel32(cave_va, len(c), CONTINUE, 1)
+    c_va = cave_va
+    body = bytes(a + b + c)
+    data[ptch_off + cave_cursor: ptch_off + cave_cursor + len(body)] = body
+    cave_cursor += len(body)
+
+    off = va_to_offset(pe, ACQUIRE_SITE)
+    data[off:off + 12] = b"\xE9" + struct.pack("<i", a_va - (ACQUIRE_SITE + 5)) + b"\x90" * 7
+    off = va_to_offset(pe, AIM_CALL)
+    data[off:off + 5] = b"\xE8" + struct.pack("<i", b_va - (AIM_CALL + 5))
+    off = va_to_offset(pe, REMOVE_SITE)
+    data[off:off + 10] = b"\xE9" + struct.pack("<i", c_va - (REMOVE_SITE + 5)) + b"\x90" * 5
+    print(f"  [OK] {label}")
+    applied.append(label)
+    return cave_cursor
+
+
+# ============================================================
 # Fix 24: the power screen's "Drain (Normal)" figure disagrees with the sum of the
 # modules' own drain figures (theoretical 1.65 vs actual 2.42).  Two causes:
 #   1. SystemManager::totalPowerDrain adds up the modules' base drain without
@@ -2056,6 +2147,105 @@ def fix_scenario_autosave(data, pe, ptch_va, ptch_off, cave_cursor):
 # drainPower multiplies the amount it draws by (1 + modifier) before drawPower.
 # ois.exe and ois_server.exe both carry the code (different addresses).
 # ============================================================
+
+# ============================================================
+# OPTIONAL VARIANT (--pds-everything): the point-defence system shoots
+# everything in range.  Not applied by default -- it changes gameplay balance
+# and is not a bug fix; it is here for people who want a PDS that works.
+#
+# Why the stock PDS never stops a torpedo (decompiled ShipModule::runLogic, the
+# PDS branch, and GameData::getShipWithinDistance):
+#   1. It picks the FIRST ship in the sector within range that has its IFF
+#      transponder off (or is a weapon).  A weapon is only returned if nothing
+#      earlier in the list qualified.
+#   2. It "hits" by calling Ship::damage(angle, 100, heat, ...).  Ship::damage
+#      returns immediately for vessel type 4 (torpedoes/probes/mines), so a lock
+#      on a torpedo never harms it.  This is the actual bug.
+#   3. Even where it works, it must roll 1 on the module's hit dice (1d6 on a
+#      PDL 101) once per reload.
+# What this variant changes:
+#   * selection: weapons first (never your own), then ordinary ships whose IFF
+#     transponder is OFF -- never ships with IFF on, stations or jump gates, never
+#     a ship that is docked, never yourself
+#   * a locked torpedo/probe/mine is destroyed (no hit roll, no warhead blast);
+#     ships still take the stock heat damage and still need the hit roll
+#   * enemy countermeasure decoys (not your own) are shot when nothing else is
+#     in range
+# Caves generated by tools/pds/asm_pds.py (assembly source lives there); every
+# external target is a rel32 resolved here, so nothing is absolute / relocated.
+# Client and server share the code layout, only the addresses differ.
+# ============================================================
+
+FILTER_CAVE = bytes.fromhex(
+    "84db0f84a76ddaff8b815402000085c00f84216edaff8b805801000080fb0274"
+    "3485c00f850e6edaff8b4140807834000f85016edaff83b9d4000000030f856c"
+    "6ddaff83b9f8000000020f84e76ddaffe95a6ddaff83f8040f85d96ddaff80b9"
+    "cc030000000f85cc6ddaff8b819c0300003b450c0f84bd6ddaffe9306ddaff"
+)
+FILTER_FIXUPS = [(0x4, "PASS"), (0x12, "SKIP"), (0x25, "SKIP"), (0x32, "SKIP"), (0x3f, "PASS"), (0x4c, "SKIP"), (0x51, "PASS"), (0x5a, "SKIP"), (0x67, "SKIP"), (0x76, "SKIP"), (0x7b, "PASS")]
+
+SELECT_CAVE = bytes.fromhex(
+    "83ec04f30f111424ff742418ff7424186a02ff742418ff742418f30f10542414"
+    "e8eb6cdaff85c0751dff742418ff7424186a01ff742418ff742418f30f105424"
+    "14e8ca6cdaff83c404c21400"
+)
+SELECT_FIXUPS = [(0x21, "GSWD"), (0x42, "GSWD")]
+
+DAMAGE_CAVE = bytes.fromhex(
+    "89f98b815402000085c0741383b85801000004750ac681cc03000001c210008b"
+    "01ff600c"
+)
+DAMAGE_FIXUPS = []
+
+ROLL_CAVE = bytes.fromhex(
+    "8b45c48b885402000085c9740d83b958010000040f8429f8daff837dc0010f85"
+    "8bf9daffe91af8daff"
+)
+ROLL_FIXUPS = [(0x16, "HIT"), (0x20, "MISS"), (0x25, "HIT")]
+
+COUNTERMEASURE_CAVE = bytes.fromhex(
+    "83ec108b4b0ce8357ed3ff660f6ec00f5bc0b80000c842660f6ed0f30f5ec28b"
+    "4308f30f108804010000f30f59c8f30f59c9f20f106628660f5ae4f20f106e30"
+    "660f5aed8b462485c00f84ad0000008b889c0000008b90a0000000890c248954"
+    "24048b0c243b4c24040f848d000000830424048b018378600375e783b8f40000"
+    "00007edef20f105028660f5ad2f20f105830660f5adbf30f5cd4f30f5cddf30f"
+    "59d2f30f59dbf30f58d30f2fca72b38b50783b9648020000753085d274a45657"
+    "8d786883787c1072028b3f8d8e3802000083be4c0200001072028b0989ce89d1"
+    "f3a65f5e0f8478ffffffc780f40000000000000083c410e9cef8daff83c410e9"
+    "58f9daff"
+)
+COUNTERMEASURE_FIXUPS = [(0x7, "EFFICIENCY"), (0xf8, "AFTER_SHOT"), (0x100, "NO_TARGET")]
+
+
+
+# Optional variants are recorded in the version marker as "+tag" suffixes
+# (e.g. "0.4.0+pds+civ"), so a later run can tell which flavour is installed.
+PDS_VARIANT_TAG = "+pds"
+CIV_VARIANT_TAG = "+civ"
+BASE_VERSION = PATCHER_VERSION
+PDS_VARIANT = False
+CIV_VARIANT = False
+
+
+def enable_variants(pds=False, civ=False):
+    """Selects the optional variants for this run and rebuilds the version string.
+    The tags always come out in the same order, so the string is canonical."""
+    global PATCHER_VERSION, PDS_VARIANT, CIV_VARIANT
+    PDS_VARIANT, CIV_VARIANT = bool(pds), bool(civ)
+    PATCHER_VERSION = BASE_VERSION + (PDS_VARIANT_TAG if PDS_VARIANT else "") + (CIV_VARIANT_TAG if CIV_VARIANT else "")
+
+
+def variants_of(version):
+    """'0.4.0+pds+civ' -> '+pds+civ' ('' for a standard build or no marker)."""
+    version = version or ""
+    return version[version.index("+"):] if "+" in version else ""
+
+
+def describe_variants(tags):
+    names = {PDS_VARIANT_TAG: "PDS variant", CIV_VARIANT_TAG: "civilian-demands variant"}
+    found = [names[t] for t in (PDS_VARIANT_TAG, CIV_VARIANT_TAG) if t in tags]
+    return " + ".join(found) if found else "standard build"
+
 
 def fix_power_drain_modifier(data, pe, ptch_va, ptch_off, cave_cursor, server=False):
     label = "Power drain: component power modifiers ignored, active modules counted twice" + (" (server)" if server else "")
@@ -2123,50 +2313,15 @@ def fix_power_drain_modifier(data, pe, ptch_va, ptch_off, cave_cursor, server=Fa
     return cave_cursor
 
 
-# ============================================================
-# Fix 25: point-defence laser vs torpedoes.  The game's own Infopedia says: "Point Defence
-# Lasers ... rapidly shoot laser blasts at nearby torpedoes when they are close enough
-# to your ship".  The decompiled code (ShipModule::runLogic, the PDS branch, and
-# GameData::getShipWithinDistance) shows why that never happened:
-#   1. It "hits" by calling Ship::damage(...).  Ship::damage returns immediately for
-#      vessel type 4 (torpedoes/probes/mines), so a locked torpedo is never harmed.
-#   2. It takes the FIRST candidate in the sector list, so a torpedo behind any ship with
-#      its IFF off is never reached.  Candidates are ships with the IFF off, or any weapon
-#      -- including the PDS owner's own torpedoes, which would now be shot down.
-# What this does: look for weapons first, never the owner's own and never one already
-# destroyed; a locked weapon is destroyed (no blast); ships are chosen by the unchanged
-# stock rule (IFF off), and the module's own hit roll still applies.
-# Caves generated by tools/pds/asm_pds.py; every external target is a rel32.
-# ============================================================
-
-FILTER_CAVE = bytes.fromhex(
-    "84db0f84a76ddaff8b815402000085c0742a83b85801000004752180b9cc0300"
-    "00000f850f6edaff8b819c0300003b450c0f84006edaffe9736ddaff80fb020f"
-    "84f26ddaff8b4140807834000f845d6ddaffe9e06ddaff"
-)
-FILTER_FIXUPS = [(0x4, "PASS"), (0x24, "SKIP"), (0x33, "SKIP"), (0x38, "PASS"), (0x41, "SKIP"), (0x4e, "PASS"), (0x53, "SKIP")]
-
-SELECT_CAVE = bytes.fromhex(
-    "83ec04f30f111424ff742418ff7424186a02ff742418ff742418f30f10542414"
-    "e8eb6cdaff85c0751dff742418ff7424186a01ff742418ff742418f30f105424"
-    "14e8ca6cdaff83c404c21400"
-)
-SELECT_FIXUPS = [(0x21, "GSWD"), (0x42, "GSWD")]
-
-DAMAGE_CAVE = bytes.fromhex(
-    "89f98b815402000085c0741383b85801000004750ac681cc03000001c210008b"
-    "01ff600c"
-)
-DAMAGE_FIXUPS = []
-
-
-
-def fix_pds_torpedoes(data, pe, ptch_va, ptch_off, cave_cursor, server=False):
-    label = "Point-defence laser can never destroy a torpedo" + (" (server)" if server else "")
+def fix_pds_target_everything(data, pe, ptch_va, ptch_off, cave_cursor, server=False):
+    label = "PDS variant: point defence shoots everything in range" + (" (server)" if server else "")
     applied, skipped = _fix_lists(server)
+
 
     # Everything is located relative to `call getShipWithinDistance` in the PDS branch.
     SELECT = 0x004AF602 if server else 0x004AF752
+    if verify_site(data, pe, SELECT - 0x33, bytes.fromhex("8B4B0C"), label + " (efficiency call)") is None:
+        return bail(label, cave_cursor, server)
     if verify_site(data, pe, SELECT - 0x2B, bytes.fromhex("6A0156FF7620"), label + " (call arguments)") is None:
         return bail(label, cave_cursor, server)
     if verify_site(data, pe, SELECT, bytes([0xE8]), label + " (select call)") is None:
@@ -2174,6 +2329,11 @@ def fix_pds_torpedoes(data, pe, ptch_va, ptch_off, cave_cursor, server=False):
     GSWD = _rel32_target(data, pe, SELECT, 1)
     if verify_site(data, pe, GSWD, bytes.fromhex("558BEC6AFF68"), label + " (getShipWithinDistance)") is None:
         return bail(label, cave_cursor, server)
+    efficiency_call = SELECT - 0x30
+    if verify_site(data, pe, efficiency_call, bytes([0xE8]), label + " (efficiency call)") is None:
+        return bail(label, cave_cursor, server)
+    EFFICIENCY = _rel32_target(data, pe, efficiency_call, 1)
+
     FILTER_SITE = GSWD + 0x7F
     FILTER_ORIGINAL = bytes.fromhex("84DB741C8B41408078340074138B815402000083B858010000040F8588000000")
     if verify_site(data, pe, FILTER_SITE, FILTER_ORIGINAL, label + " (candidate filter)") is None:
@@ -2182,15 +2342,37 @@ def fix_pds_torpedoes(data, pe, ptch_va, ptch_off, cave_cursor, server=False):
     if (verify_site(data, pe, PASS, bytes.fromhex("F20F104928"), label + " (filter pass)") is None
             or verify_site(data, pe, SKIP, bytes.fromhex("8B86D0000000"), label + " (filter skip)") is None):
         return bail(label, cave_cursor, server)
+
+    CM_SITE = SELECT + 0x0A
+    if verify_site(data, pe, SELECT + 5, bytes.fromhex("8945C485C0"), label + " (target test)") is None:
+        return bail(label, cave_cursor, server)
+    if verify_site(data, pe, CM_SITE, bytes([0x0F, 0x84]), label + " (no-target jump)") is None:
+        return bail(label, cave_cursor, server)
+    NO_TARGET = _rel32_target(data, pe, CM_SITE, 2)
+
+    ROLL_SITE = SELECT + 0xE7
+    if verify_site(data, pe, ROLL_SITE, bytes.fromhex("837DC0010F85"), label + " (hit roll)") is None:
+        return bail(label, cave_cursor, server)
+    MISS = _rel32_target(data, pe, ROLL_SITE + 4, 2)
+    HIT = ROLL_SITE + 10
+
     DAMAGE_SITE = SELECT + 0x16D
     if verify_site(data, pe, DAMAGE_SITE, bytes.fromhex("8BCF50FF520C"), label + " (damage call)") is None:
         return bail(label, cave_cursor, server)
+    if verify_site(data, pe, DAMAGE_SITE + 6, bytes.fromhex("8B43048B404880B83402000000"), label + " (after damage)") is None:
+        return bail(label, cave_cursor, server)
+    if verify_site(data, pe, DAMAGE_SITE + 19, bytes([0x0F, 0x84]), label + " (after-shot jump)") is None:
+        return bail(label, cave_cursor, server)
+    AFTER_SHOT = _rel32_target(data, pe, DAMAGE_SITE + 19, 2)
 
-    symbols = {"GSWD": GSWD, "PASS": PASS, "SKIP": SKIP}
-    for site, length in ((FILTER_SITE, 32), (SELECT, 5), (DAMAGE_SITE, 6)):
+    symbols = {"GSWD": GSWD, "PASS": PASS, "SKIP": SKIP, "EFFICIENCY": EFFICIENCY, "AFTER_SHOT": AFTER_SHOT,
+               "NO_TARGET": NO_TARGET, "HIT": HIT, "MISS": MISS}
+
+    for site, length in ((FILTER_SITE, 32), (SELECT, 5), (ROLL_SITE, 10), (DAMAGE_SITE, 6), (CM_SITE, 6)):
         neutralize_relocations(data, pe, site, length, label)
 
     def place(cave, fixups):
+        """Copies a cave into .ptch, resolving its external rel32 operands. Returns its VA."""
         nonlocal cave_cursor
         va = ptch_va + cave_cursor
         body = bytearray(cave)
@@ -2206,13 +2388,62 @@ def fix_pds_torpedoes(data, pe, ptch_va, ptch_off, cave_cursor, server=False):
 
     filter_va = place(FILTER_CAVE, FILTER_FIXUPS)
     select_va = place(SELECT_CAVE, SELECT_FIXUPS)
+    roll_va = place(ROLL_CAVE, ROLL_FIXUPS)
     damage_va = place(DAMAGE_CAVE, DAMAGE_FIXUPS)
+    cm_va = place(COUNTERMEASURE_CAVE, COUNTERMEASURE_FIXUPS)
+
     write(FILTER_SITE, b"\xE9" + struct.pack("<i", filter_va - (FILTER_SITE + 5)) + b"\x90" * 27)
     write(SELECT, b"\xE8" + struct.pack("<i", select_va - (SELECT + 5)))
+    write(ROLL_SITE, b"\xE9" + struct.pack("<i", roll_va - (ROLL_SITE + 5)) + b"\x90" * 5)
     write(DAMAGE_SITE, b"\x50\xE8" + struct.pack("<i", damage_va - (DAMAGE_SITE + 6)))
+    write(CM_SITE, b"\x0F\x84" + struct.pack("<i", cm_va - (CM_SITE + 6)))
+
     print(f"  [OK] {label}")
     applied.append(label)
     return cave_cursor
+
+
+
+# ============================================================
+# OPTIONAL VARIANT (--civilians-comply): civilians give in to a cargo demand far
+# more readily, and can be hailed again afterwards.  Not applied by default.
+#
+# From the decompiled ShipBehaviour::respondToPirateDemand (called when you pick
+# "Drop your cargo or be fired upon." on a hail):
+#   * A civilian (craft purpose 1) rolls rand()%100+1 <= chance.  The base chance
+#     comes from the table `dropCargoChance`, indexed by the captain's STYLE (data key
+#     `captainstyle=`; 0 cautious, 1 moderate, 2 reckless, 3 vreckless): {100, 90, 60, 15}.
+#     Cargo amount, cargo value and smuggling are NOT part of the roll.  If your IFF is on it is forced to 2%; beyond 120 units it
+#     is cut to two thirds, beyond 180 units to 5%.
+#   * If the civilian's own sensors hold a weapon contact within 100 units, the
+#     chance becomes table*1.5 (max 100).  Otherwise a failed roll says "We'll
+#     believe it when we see a torpedo." -- even if you have just fired one the
+#     civilian cannot see yet.
+#   * The first thing the function does is add your registration to a list on the
+#     civilian ship; PrivateCommsManager::switchTo refuses to open a conversation
+#     with any ship whose list contains you.  So after one demand, answered or
+#     not, you can never hail that ship again.
+# What this variant changes:
+#   1. dropCargoChance {100, 90, 60, 15} -> {100, 90, 70, 35} (reckless +10, vreckless +20)
+#   2. a torpedo/probe/mine YOU launched that is still in flight within 250 units
+#      of the civilian counts as seen, whatever the civilian's sensors say
+#   3. the registration is no longer added to that list, so you can hail again
+# The rolls, the IFF-on rule, the distance penalties and everything pirates and
+# authorities do are untouched.  Client and server share the layout.
+# ============================================================
+
+CIVILIAN_TORPEDO_CAVE = bytes.fromhex(
+    "8b45088b402485c00f848a0000008bb8cc0000008b98d00000008b4e6cf20f10"
+    "6128660f5ae4f20f106930660f5aedb800247447660f6ec839df745c8b0f83c7"
+    "048b815402000085c074ed83b8580100000475e48b450839819c03000075d980"
+    "b9cc0300000075d0f20f105128660f5ad2f20f105930660f5adbf30f5cd4f30f"
+    "5cddf30f59d2f30f59dbf30f58d30f2fca72a5e9be4de0ff8b5decbf64000000"
+    "e9174de0ff"
+)
+CIVILIAN_TORPEDO_FIXUPS = [(0x94, "SEEN"), (0xa1, "CONTINUE")]
+
+CIV_CHANCE_STOCK = (100, 90, 60, 15)
+CIV_CHANCE_NEW = (100, 90, 70, 35)
 
 
 # ============================================================
@@ -2488,6 +2719,65 @@ def fix_autopilot_cruise_burn(data, pe, ptch_va, ptch_off, cave_cursor, server=F
     return cave_cursor
 
 
+def fix_civilians_comply(data, pe, ptch_va, ptch_off, cave_cursor, server=False):
+    label = "Civilian demand variant: civilians comply more, and can be hailed again" + (" (server)" if server else "")
+    applied, skipped = _fix_lists(server)
+
+
+    FUNC = 0x005043F0 if server else 0x00504B10          # ShipBehaviour::respondToPirateDemand
+    # ---- 3. the "blocked from hailing" list ------------------------------------------------
+    LIST_SITE, LIST_REJOIN = FUNC + 0x48, FUNC + 0x7D
+    list_head = bytes.fromhex("8B88600300008D97380200008955D0523988640300007411")
+    if verify_site(data, pe, LIST_SITE, list_head, label + " (blocked-hail list)") is None:
+        return bail(label, cave_cursor, server)
+    if verify_site(data, pe, LIST_REJOIN, bytes.fromhex("F20F104F28"), label + " (after the list)") is None:
+        return bail(label, cave_cursor, server)
+    # ---- 1. the chance table ----------------------------------------------------------------
+    if verify_site(data, pe, FUNC + 0x11E, bytes.fromhex("8B0C85"), label + " (chance lookup)") is None:
+        return bail(label, cave_cursor, server)
+    table_va = struct.unpack_from("<I", data, va_to_offset(pe, FUNC + 0x11E) + 3)[0]
+    table_off = va_to_offset(pe, table_va)
+    if table_off is None or struct.unpack_from("<4I", data, table_off) != CIV_CHANCE_STOCK:
+        print(f"  [SKIP] {label}: dropCargoChance table is not the expected {CIV_CHANCE_STOCK}")
+        return bail(label, cave_cursor, server)
+    # ---- 2. torpedo-in-flight check ---------------------------------------------------------
+    EXIT_SITE, SEEN, CONTINUE = FUNC + 0x2A4, FUNC + 0x346, FUNC + 0x2AC
+    if verify_site(data, pe, EXIT_SITE, bytes.fromhex("8B5DECBF64000000"), label + " (after sensor scan)") is None:
+        return bail(label, cave_cursor, server)
+    if verify_site(data, pe, SEEN, bytes.fromhex("8B4674BF6400"), label + " (torpedo seen)") is None:
+        return bail(label, cave_cursor, server)
+    if verify_site(data, pe, CONTINUE, bytes.fromhex("837E7001"), label + " (roll)") is None:
+        return bail(label, cave_cursor, server)
+
+    for site, length in ((LIST_SITE, LIST_REJOIN - LIST_SITE), (EXIT_SITE, 8)):
+        neutralize_relocations(data, pe, site, length, label)
+
+    # 1. chance table (plain data)
+    struct.pack_into("<4I", data, table_off, *CIV_CHANCE_NEW)
+
+    # 2. cave
+    symbols = {"SEEN": SEEN, "CONTINUE": CONTINUE}
+    cave_va = ptch_va + cave_cursor
+    body = bytearray(CIVILIAN_TORPEDO_CAVE)
+    for pos, name in CIVILIAN_TORPEDO_FIXUPS:
+        struct.pack_into("<i", body, pos, symbols[name] - (cave_va + pos + 4))
+    data[ptch_off + cave_cursor: ptch_off + cave_cursor + len(body)] = body
+    cave_cursor += len(body)
+    off = va_to_offset(pe, EXIT_SITE)
+    data[off:off + 8] = b"\xE9" + struct.pack("<i", cave_va - (EXIT_SITE + 5)) + b"\x90" * 3
+
+    # 3. keep the "who demanded" bookkeeping the rest of the function needs (the registration
+    #    pointer in [EBP-0x30]) but skip adding it to the civilian's list
+    off = va_to_offset(pe, LIST_SITE)
+    patch = bytes.fromhex("8D973802000089" "55D0")          # LEA EDX,[EDI+0x238] / MOV [EBP-0x30],EDX
+    patch += b"\xEB" + bytes([LIST_REJOIN - (LIST_SITE + len(patch) + 2)])
+    data[off:off + (LIST_REJOIN - LIST_SITE)] = patch + b"\x90" * (LIST_REJOIN - LIST_SITE - len(patch))
+
+    print(f"  [OK] {label}")
+    applied.append(label)
+    return cave_cursor
+
+
 # ============================================================
 
 def fix_pirate_hunt_server(data, pe, ptch_va, ptch_off, cave_cursor):
@@ -2615,8 +2905,12 @@ def patch_server_exe(exe_path):
     cave_cursor = VERSION_MARKER_SIZE
     cave_cursor = fix_pirate_hunt_server(data, pe, ptch_va, ptch_off, cave_cursor)
     fix_pirate_hunt_format_string_server(data, pe)
+    cave_cursor = fix_torpedo_lost_target(data, pe, ptch_va, ptch_off, cave_cursor, server=True)
+    if PDS_VARIANT:
+        cave_cursor = fix_pds_target_everything(data, pe, ptch_va, ptch_off, cave_cursor, server=True)
+    if CIV_VARIANT:
+        cave_cursor = fix_civilians_comply(data, pe, ptch_va, ptch_off, cave_cursor, server=True)
     cave_cursor = fix_power_drain_modifier(data, pe, ptch_va, ptch_off, cave_cursor, server=True)
-    cave_cursor = fix_pds_torpedoes(data, pe, ptch_va, ptch_off, cave_cursor, server=True)
     cave_cursor = fix_autopilot_overshoot(data, pe, ptch_va, ptch_off, cave_cursor, server=True)
     cave_cursor = fix_autopilot_cruise_burn(data, pe, ptch_va, ptch_off, cave_cursor, server=True)
     pe.close()
@@ -3220,7 +3514,11 @@ def print_status(game_dir):
             backup_note = "  [backup: none]"
         print(f"  {name:<16} {status.describe()}{backup_note}")
         if status.state == STATE_PATCHED and status.version != PATCHER_VERSION:
-            print(f"  {'':<16} -> run this script with no arguments to update it to v{PATCHER_VERSION}")
+            if variants_of(status.version):
+                print(f"  {'':<16} -> {describe_variants(variants_of(status.version))} installed; "
+                      f"re-run with the same --pds-everything / --civilians-comply options to keep it")
+            else:
+                print(f"  {'':<16} -> run this script with no arguments to update it to v{PATCHER_VERSION}")
     mod_dir = game_dir.joinpath(*MOD_DIR_RELATIVE)
     print(f"  {'bugfix mod':<16} {'installed at ' + str(mod_dir) if mod_dir.is_dir() else 'not installed'}")
     n = len(saved_originals(game_dir))
@@ -3408,6 +3706,10 @@ def prepare_for_patch(client_exe, force=False, assume_yes=False):
         print(f"\n--force: re-patching (nothing to restore -- {client_exe.name} isn't currently patched).")
     else:
         print(f"\nThis install was patched by {label}; this script is v{PATCHER_VERSION}.")
+        have, want = variants_of(client.version), variants_of(PATCHER_VERSION)
+        if have != want:
+            print(f"Note: the installed build is the {describe_variants(have)}; this run installs the "
+                  f"{describe_variants(want)}.")
         print("Updating means restoring the original exe(s) from their backups and applying")
         print("the current fixes to them. Save games and settings are not involved.")
 
@@ -3574,6 +3876,17 @@ def main():
                              "it reads better in scripts and shortcuts.")
     parser.add_argument("--list-installs", action="store_true",
                         help="List every install found and exit without patching anything.")
+    parser.add_argument("--pds-everything", action="store_true",
+                        help="OPTIONAL VARIANT, not a bug fix: the point-defence system shoots "
+                             "everything in range (torpedoes, probes, enemy decoys, and ships "
+                             "with their IFF off -- never ships with IFF on, stations, gates, docked ships or your "
+                             "own weapons). Also makes it actually destroy torpedoes. Installing "
+                             "or removing it later goes through the normal restore-and-repatch.")
+    parser.add_argument("--civilians-comply", action="store_true",
+                        help="OPTIONAL VARIANT, not a bug fix: civilians are far more willing to drop "
+                             "cargo when you demand it, a torpedo of yours that is still in flight now "
+                             "counts as a credible threat, and a civilian you have demanded cargo from "
+                             "can be hailed again.")
     parser.add_argument("--uninstall", action="store_true",
                         help="Restore the original exe(s) from their .original-backup files "
                              "and remove the bugfix mod, then exit.")
@@ -3592,6 +3905,7 @@ def main():
                         help="With --uninstall, leave the .original-backup files in place "
                              "instead of deleting them after a verified restore.")
     args = parser.parse_args()
+    enable_variants(pds=args.pds_everything, civ=args.civilians_comply)
 
     if args.list_installs:
         found = find_game_dirs()
@@ -3721,8 +4035,12 @@ def main():
     cave_cursor = fix_ship_sound_listener(data, pe, ptch_va, ptch_off, cave_cursor)
     cave_cursor = fix_module_purchase_email(data, pe, ptch_va, ptch_off, cave_cursor)
     cave_cursor = fix_scenario_autosave(data, pe, ptch_va, ptch_off, cave_cursor)
+    cave_cursor = fix_torpedo_lost_target(data, pe, ptch_va, ptch_off, cave_cursor)
+    if PDS_VARIANT:
+        cave_cursor = fix_pds_target_everything(data, pe, ptch_va, ptch_off, cave_cursor)
+    if CIV_VARIANT:
+        cave_cursor = fix_civilians_comply(data, pe, ptch_va, ptch_off, cave_cursor)
     cave_cursor = fix_power_drain_modifier(data, pe, ptch_va, ptch_off, cave_cursor)
-    cave_cursor = fix_pds_torpedoes(data, pe, ptch_va, ptch_off, cave_cursor)
     fix_terminal_power_units(data, pe)
     cave_cursor = fix_forced_conversation_first_option(data, pe, ptch_va, ptch_off, cave_cursor)
     cave_cursor = fix_news_enter_without_selection(data, pe, ptch_va, ptch_off, cave_cursor)
