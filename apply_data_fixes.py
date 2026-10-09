@@ -534,18 +534,6 @@ def apply_inplace(assets_dir, backup_dir):
     return applied, skipped
 
 
-def restore_inplace(assets_dir, backup_dir):
-    """Copies every saved original back into assets/. Returns the number restored."""
-    assets_dir, backup_dir = Path(assets_dir), Path(backup_dir)
-    restored = 0
-    if backup_dir.is_dir():
-        for saved in sorted(backup_dir.glob("*.txt")):
-            if is_inplace(saved.name) and (assets_dir / saved.name).parent.is_dir():
-                (assets_dir / saved.name).write_bytes(saved.read_bytes())
-                restored += 1
-    return restored
-
-
 def apply_all(assets_dir, mod_dst_dir):
     """Reads each affected file from `assets_dir` (the user's own game
     install), applies the verified line fixes, and writes the result into

@@ -234,6 +234,29 @@ def neutralize_relocations(data, pe, va, length, label):
         print(f"    neutralized {len(conflicts)} relocation entr{'y' if len(conflicts)==1 else 'ies'} in {label}'s patch range")
 
 
+def _rel32_target(data, pe, va, opcode_len):
+    """Absolute target of a rel32 call/jump whose opcode is `opcode_len` bytes long."""
+    off = va_to_offset(pe, va)
+    rel = struct.unpack_from("<i", data, off + opcode_len)[0]
+    return va + opcode_len + 4 + rel
+
+
+def _rel32(cave_va, at, target, opcode_len):
+    """rel32 operand for a branch/call whose opcode starts at cave_va + at and is opcode_len bytes long."""
+    return struct.pack("<i", target - (cave_va + at + opcode_len + 4))
+
+
+def _fix_lists(server):
+    """(applied, skipped) lists of the exe being patched."""
+    return (SERVER_FIXES_APPLIED, SERVER_FIXES_SKIPPED) if server else (FIXES_APPLIED, FIXES_SKIPPED)
+
+
+def bail(label, cave_cursor, server=False):
+    """Records `label` as skipped and returns the unchanged cave cursor."""
+    _fix_lists(server)[1].append(label)
+    return cave_cursor
+
+
 # ============================================================
 # .ptch section setup -- adds a new PE section for the cave code below,
 # then gives it real file-backed bytes to write into
@@ -2021,102 +2044,22 @@ def fix_scenario_autosave(data, pe, ptch_va, ptch_off, cave_cursor):
     return cave_cursor
 
 
-def fix_torpedo_lost_target(data, pe, ptch_va, ptch_off, cave_cursor, server=False):
-    label = "Torpedo whose target dies re-targets the nearest contact" + (" (server)" if server else "")
-    applied, skipped = (SERVER_FIXES_APPLIED, SERVER_FIXES_SKIPPED) if server else (FIXES_APPLIED, FIXES_SKIPPED)
-
-    def bail():
-        skipped.append(label)
-        return cave_cursor
-
-    # Weapon::runHomeLogic (the torpedo's homing code) and GameLogic::entirelyRemoveShip
-    HOME = 0x0051C790 if server else 0x0051D280
-    REMOVE_SITE = 0x0040D6BB if server else 0x0040D98B
-    ACQUIRE_SITE, AIM_CALL, AFTER_ACQUIRE = HOME + 0x6C, HOME + 0x918, HOME + 0x8D1
-    # 1. runHomeLogic: `if (target == 0) pick the nearest sensor contact` -- stock behaviour once a target is gone
-    if verify_site(data, pe, ACQUIRE_SITE, bytes.fromhex("39878C0300000F85"), label + " (target test)") is None:
-        return bail()
-    if verify_site(data, pe, AFTER_ACQUIRE, bytes.fromhex("8B8788030000F30F1005"), label + " (after acquisition)") is None:
-        return bail()
-    # 2. the aim call that follows it
-    if verify_site(data, pe, AIM_CALL - 2, bytes.fromhex("8BCFE8"), label + " (aim call)") is None:
-        return bail()
-    # 3. entirelyRemoveShip: the weapon loop that zeroes a torpedo's target when that ship is removed
-    if verify_site(data, pe, REMOVE_SITE - 8, bytes.fromhex("39838C030000750AC7838C03000000000000"),
-                   label + " (target cleared on removal)") is None:
-        return bail()
-    PRESENT = _rel32_target(data, pe, ACQUIRE_SITE + 6, 2)       # the original `JNE <has a target>`
-    AIM_FUNC = _rel32_target(data, pe, AIM_CALL, 1)              # Weapon::runAimLogic
-    if verify_site(data, pe, AIM_FUNC, bytes.fromhex("558BEC6AFF68"), label + " (aim function)") is None:
-        return bail()
-    CONTINUE = REMOVE_SITE + 10
-    for site, length in ((ACQUIRE_SITE, 12), (AIM_CALL, 5), (REMOVE_SITE, 10)):
-        neutralize_relocations(data, pe, site, length, label)
-
-    def rel(cave, at, target, opcode_len):
-        return struct.pack("<i", target - (cave + at + opcode_len + 4))
-
-    NO_AIM = bytes.fromhex("003C1CC6")                            # -9999.0f, the game's "no aim point" value
-    cave_va = ptch_va + cave_cursor
-    # ---- A: runHomeLogic's target test.  A torpedo whose target was destroyed carries the marker
-    #         byte 2 in its "have contact" flag [+0x3DC]; it does not go looking for a new victim.
-    a = bytearray(bytes.fromhex("39878C030000"))                  # CMP [EDI+0x38C],EAX   (EAX = 0)
-    a += b"\x0F\x85" + rel(cave_va, len(a), PRESENT, 2)           # JNE <has a target>
-    a += bytes.fromhex("80BFDC03000002")                          # CMP BYTE [EDI+0x3DC],2
-    a += b"\x0F\x84" + rel(cave_va, len(a), AFTER_ACQUIRE, 2)     # JE  <skip acquisition>
-    a += b"\xE9" + rel(cave_va, len(a), ACQUIRE_SITE + 12, 1)      # JMP <stock acquisition>
-    a_va = cave_va
-    cave_va += len(a)
-    # ---- B: runHomeLogic's call to runAimLogic.  A torpedo that lost its target and has no new aim
-    #         point does not steer or thrust (the same idle state runTravelLogic uses), so it drifts.
-    b = bytearray()
-    b += bytes.fromhex("83B98C03000000")                          # CMP DWORD [ECX+0x38C],0
-    jne1 = len(b); b += b"\x75\x00"
-    b += bytes.fromhex("80B9DC03000002")                          # CMP BYTE [ECX+0x3DC],2
-    jne2 = len(b); b += b"\x75\x00"
-    b += bytes.fromhex("81B92C010000") + NO_AIM                   # CMP DWORD [ECX+0x12C],-9999.0f
-    jne3 = len(b); b += b"\x75\x00"
-    b += bytes.fromhex("81B930010000") + NO_AIM                   # CMP DWORD [ECX+0x130],-9999.0f
-    jne4 = len(b); b += b"\x75\x00"
-    b += bytes.fromhex("8B4140" "8B10" "85D2" "7404" "C6426200")   # engine slot 0 off, if present
-    b += bytes.fromhex("8B4010" "85C0" "7404" "C6406200")          # engine slot 0x10 off, if present
-    b += bytes.fromhex("C20800")                                  # RET 8  (runAimLogic is callee-cleaned)
-    orig = len(b)
-    for j in (jne1, jne2, jne3, jne4):
-        b[j + 1] = orig - (j + 2)
-    b += b"\xE9" + rel(cave_va, len(b), AIM_FUNC, 1)              # JMP runAimLogic
-    b_va = cave_va
-    cave_va += len(b)
-    # ---- C: the weapon loop in entirelyRemoveShip.  Stock zeroes the target; also mark the torpedo
-    #         "target lost" and clear its aim point, so A and B above recognise it.
-    c = bytearray(bytes.fromhex("C7838C030000" "00000000"))       # MOV DWORD [EBX+0x38C],0
-    c += bytes.fromhex("C683DC03000002")                          # MOV BYTE [EBX+0x3DC],2
-    c += bytes.fromhex("C7832C010000") + NO_AIM                   # MOV DWORD [EBX+0x12C],-9999.0f
-    c += bytes.fromhex("C78330010000") + NO_AIM                   # MOV DWORD [EBX+0x130],-9999.0f
-    c += b"\xE9" + rel(cave_va, len(c), CONTINUE, 1)
-    c_va = cave_va
-    body = bytes(a + b + c)
-    data[ptch_off + cave_cursor: ptch_off + cave_cursor + len(body)] = body
-    cave_cursor += len(body)
-
-    off = va_to_offset(pe, ACQUIRE_SITE)
-    data[off:off + 12] = b"\xE9" + struct.pack("<i", a_va - (ACQUIRE_SITE + 5)) + b"\x90" * 7
-    off = va_to_offset(pe, AIM_CALL)
-    data[off:off + 5] = b"\xE8" + struct.pack("<i", b_va - (AIM_CALL + 5))
-    off = va_to_offset(pe, REMOVE_SITE)
-    data[off:off + 10] = b"\xE9" + struct.pack("<i", c_va - (REMOVE_SITE + 5)) + b"\x90" * 5
-    print(f"  [OK] {label}")
-    applied.append(label)
-    return cave_cursor
-
+# ============================================================
+# Fix 24: the power screen's "Drain (Normal)" figure disagrees with the sum of the
+# modules' own drain figures (theoretical 1.65 vs actual 2.42).  Two causes:
+#   1. SystemManager::totalPowerDrain adds up the modules' base drain without
+#      the component power modifier (ComponentInterfaceInstance::getPowerModifier)
+#      that ShipModule::getCurrentPowerDrain applies and the module screens show.
+#   2. ShipModule::drainPower, what is really taken from the batteries, also
+#      ignores that modifier, so the screens and the batteries disagree.
+# Fix: totalPowerDrain now sums getCurrentPowerDrain over the module vector, and
+# drainPower multiplies the amount it draws by (1 + modifier) before drawPower.
+# ois.exe and ois_server.exe both carry the code (different addresses).
+# ============================================================
 
 def fix_power_drain_modifier(data, pe, ptch_va, ptch_off, cave_cursor, server=False):
     label = "Power drain: component power modifiers ignored, active modules counted twice" + (" (server)" if server else "")
-    applied, skipped = (SERVER_FIXES_APPLIED, SERVER_FIXES_SKIPPED) if server else (FIXES_APPLIED, FIXES_SKIPPED)
-
-    def bail():
-        skipped.append(label)
-        return cave_cursor
+    applied, skipped = _fix_lists(server)
 
     if server:
         TOTAL, CURRENT, DRAIN, MODIFIER, DRAW = 0x00522BE0, 0x004AE1B0, 0x004AE120, 0x00438020, 0x00521A50
@@ -2129,17 +2072,14 @@ def fix_power_drain_modifier(data, pe, ptch_va, ptch_off, cave_cursor, server=Fa
                            (DRAIN, "558BEC83E4F851568BF1807E6300", "drainPower"),
                            (MODIFIER, "558BEC83EC0C8B11", "getPowerModifier")):
         if verify_site(data, pe, va, bytes.fromhex(head), f"{label} ({what})") is None:
-            return bail()
+            return bail(label, cave_cursor, server)
     CALLS = (DRAIN + 0x4A, DRAIN + 0x72)                       # the two `CALL drawPower` in drainPower
     for va in CALLS:
         if verify_site(data, pe, va, b"\xE8", f"{label} (draw call)") is None or _rel32_target(data, pe, va, 1) != DRAW:
             print(f"  [SKIP] {label}: drainPower does not call drawPower where expected")
-            return bail()
+            return bail(label, cave_cursor, server)
     for site, length in ((TOTAL, 5), (CALLS[0], 5), (CALLS[1], 5)):
         neutralize_relocations(data, pe, site, length, label)
-
-    def rel(cave, at, target, opcode_len):
-        return struct.pack("<i", target - (cave + at + opcode_len + 4))
 
     cave_va = ptch_va + cave_cursor
     # ---- totalPowerDrain: the sum of every module's own current drain (ShipModule::getCurrentPowerDrain:
@@ -2154,7 +2094,7 @@ def fix_power_drain_modifier(data, pe, ptch_va, ptch_off, cave_cursor, server=Fa
     t += bytes.fromhex("3BDE") + b"\x73\x00"                         # CMP EBX,ESI / JAE done
     jae = len(t) - 1
     t += bytes.fromhex("8B0C9F")                                     # MOV ECX,[EDI+EBX*4]
-    t += b"\xE8" + rel(cave_va, len(t), CURRENT, 1)                  # CALL getCurrentPowerDrain
+    t += b"\xE8" + _rel32(cave_va, len(t), CURRENT, 1)                  # CALL getCurrentPowerDrain
     t += bytes.fromhex("F30F580424" "F30F110424" "43")                # total += XMM0 / INC EBX
     t += b"\xEB" + bytes([(loop - (len(t) + 2)) & 0xFF])             # JMP loop
     t[jae] = len(t) - (jae + 1)
@@ -2164,10 +2104,10 @@ def fix_power_drain_modifier(data, pe, ptch_va, ptch_off, cave_cursor, server=Fa
     # ---- drainPower: what is actually taken from the batteries also gets the (1 + modifier)
     d = bytes.fromhex("83EC08" "F30F110C24" "51"                      # save the amount (XMM1) and ECX
                       "8B4E0C")                                      # ECX = this->components
-    d += b"\xE8" + rel(cave_va, len(d), MODIFIER, 1)                 # CALL getPowerModifier
+    d += b"\xE8" + _rel32(cave_va, len(d), MODIFIER, 1)                 # CALL getPowerModifier
     d += bytes.fromhex("59" "B8" "0000803F" "660F6ED0" "F30F58C2"     # POP ECX / XMM0 = 1 + modifier
                        "F30F100C24" "F30F59C8" "83C408")             # XMM1 = amount * (1 + modifier)
-    d += b"\xE9" + rel(cave_va, len(d), DRAW, 1)                     # JMP drawPower
+    d += b"\xE9" + _rel32(cave_va, len(d), DRAW, 1)                     # JMP drawPower
     draw_va = cave_va
     body = bytes(t + d)
     data[ptch_off + cave_cursor: ptch_off + cave_cursor + len(body)] = body
@@ -2184,7 +2124,7 @@ def fix_power_drain_modifier(data, pe, ptch_va, ptch_off, cave_cursor, server=Fa
 
 
 # ============================================================
-# Point-defence laser vs torpedoes.  The game's own Infopedia says: "Point Defence
+# Fix 25: point-defence laser vs torpedoes.  The game's own Infopedia says: "Point Defence
 # Lasers ... rapidly shoot laser blasts at nearby torpedoes when they are close enough
 # to your ship".  The decompiled code (ShipModule::runLogic, the PDS branch, and
 # GameData::getShipWithinDistance) shows why that never happened:
@@ -2223,32 +2163,28 @@ DAMAGE_FIXUPS = []
 
 def fix_pds_torpedoes(data, pe, ptch_va, ptch_off, cave_cursor, server=False):
     label = "Point-defence laser can never destroy a torpedo" + (" (server)" if server else "")
-    applied, skipped = (SERVER_FIXES_APPLIED, SERVER_FIXES_SKIPPED) if server else (FIXES_APPLIED, FIXES_SKIPPED)
-
-    def bail():
-        skipped.append(label)
-        return cave_cursor
+    applied, skipped = _fix_lists(server)
 
     # Everything is located relative to `call getShipWithinDistance` in the PDS branch.
     SELECT = 0x004AF602 if server else 0x004AF752
     if verify_site(data, pe, SELECT - 0x2B, bytes.fromhex("6A0156FF7620"), label + " (call arguments)") is None:
-        return bail()
+        return bail(label, cave_cursor, server)
     if verify_site(data, pe, SELECT, bytes([0xE8]), label + " (select call)") is None:
-        return bail()
+        return bail(label, cave_cursor, server)
     GSWD = _rel32_target(data, pe, SELECT, 1)
     if verify_site(data, pe, GSWD, bytes.fromhex("558BEC6AFF68"), label + " (getShipWithinDistance)") is None:
-        return bail()
+        return bail(label, cave_cursor, server)
     FILTER_SITE = GSWD + 0x7F
     FILTER_ORIGINAL = bytes.fromhex("84DB741C8B41408078340074138B815402000083B858010000040F8588000000")
     if verify_site(data, pe, FILTER_SITE, FILTER_ORIGINAL, label + " (candidate filter)") is None:
-        return bail()
+        return bail(label, cave_cursor, server)
     PASS, SKIP = GSWD + 0x9F, GSWD + 0x127
     if (verify_site(data, pe, PASS, bytes.fromhex("F20F104928"), label + " (filter pass)") is None
             or verify_site(data, pe, SKIP, bytes.fromhex("8B86D0000000"), label + " (filter skip)") is None):
-        return bail()
+        return bail(label, cave_cursor, server)
     DAMAGE_SITE = SELECT + 0x16D
     if verify_site(data, pe, DAMAGE_SITE, bytes.fromhex("8BCF50FF520C"), label + " (damage call)") is None:
-        return bail()
+        return bail(label, cave_cursor, server)
 
     symbols = {"GSWD": GSWD, "PASS": PASS, "SKIP": SKIP}
     for site, length in ((FILTER_SITE, 32), (SELECT, 5), (DAMAGE_SITE, 6)):
@@ -2279,10 +2215,17 @@ def fix_pds_torpedoes(data, pe, ptch_va, ptch_off, cave_cursor, server=False):
     return cave_cursor
 
 
+# ============================================================
+# Fix 26: the ship terminal labels power in "mw" while the power screen and the power
+# bar use kW (same numbers).  Also the terminal's STATUS command prints the
+# ship's power *generation* on its "Current Power Drain" line: it calls
+# SystemManager::totalPowerGeneration-like code at 0x524720 right after computing
+# totalPowerDrain (0x5246B0) and discarding it; the ship-text version of the line
+# (0x4F087D) calls totalPowerDrain.  Fix: the ten format strings say "kw", and
+# the STATUS call goes to totalPowerDrain.
+# ============================================================
+
 def fix_terminal_power_units(data, pe):
-    """The ship terminal labels power in "mw" while the rest of the game (power screen, power bar)
-    uses kW, and the numbers are the same ones.  Also, the terminal's STATUS command prints the
-    ship's power *generation* on its "Current Power Drain" line."""
     label = "Ship terminal power units (mw instead of kw) and STATUS drain line"
     FORMATS = [b"  `%%PWR Gen`2: %.2fmw/%.2fmw\n", b"  `$PWR Store`2: %.2fmw/%.2fmw\n",
                b"  `^PWR Drain`2: `@-%.2fmw\n", b"Current Power Drain: `@-%.2fmw",
@@ -2299,9 +2242,6 @@ def fix_terminal_power_units(data, pe):
             return
         data[at + 1: at + 1 + len(text)] = text.replace(b"mw", b"kw")
         done += 1
-    # STATUS: "Current Power Drain" is printed from SystemManager::totalPowerGeneration-like sum at
-    # 0x524720 (generation) instead of totalPowerDrain (0x5246B0), which the code computes just before
-    # and then discards.  The ship-text version of the same line (0x4F087D) calls totalPowerDrain.
     CALL = 0x0054B361
     if verify_site(data, pe, CALL - 7, bytes.fromhex("8BCEF20F110424E8"), label + " (status drain call)") is None:
         FIXES_SKIPPED.append(label)
@@ -2317,12 +2257,17 @@ def fix_terminal_power_units(data, pe):
     FIXES_APPLIED.append(label)
 
 
+# ============================================================
+# Fix 27: in a forced/intercom conversation (Asterin Allas) Enter does nothing until an
+# arrow key is pressed.  PrivateCommsManager::runLogic starts such a conversation
+# with `selected option = 0` even when option 0 is hidden by its requirements
+# (her two "Ok?" options); every other start (switchTo, after choosing an option)
+# uses firstValidConversationOption().  Fix: do the same here.
+# ============================================================
+
 def fix_forced_conversation_first_option(data, pe, ptch_va, ptch_off, cave_cursor):
     label = "Intercom/forced conversation: Enter does nothing until you press an arrow key"
     SITE, FIRST_VALID, CONTINUE = 0x00431B40, 0x00430EB0, 0x00431B4A
-    # PrivateCommsManager::runLogic starts a forced conversation with `selected option = 0`, even when
-    # option 0 is hidden by its requirements (Asterin Allas's two "Ok?" options); every other start
-    # (switchTo, after choosing an option) uses firstValidConversationOption().
     if verify_site(data, pe, SITE, bytes.fromhex("C7839400000000000000C7430800000000"), label) is None \
             or verify_site(data, pe, FIRST_VALID, bytes.fromhex("8B818C00000033D256578BB8A0000000"),
                            label + " (firstValidConversationOption)") is None:
@@ -2343,12 +2288,18 @@ def fix_forced_conversation_first_option(data, pe, ptch_va, ptch_off, cave_curso
     return cave_cursor
 
 
+# ============================================================
+# Fix 28: News list: pressing Enter with nothing selected prints "Invalid article number:
+# <garbage>".  ComputerSystem::selectedArticle(slot) indexes its slot->article
+# table with no range check (selectedEmail at least handles -1).  With slot -1
+# it read the heap word in front of the table and reported it as the article
+# number.  Fix: an index outside the table (unsigned compare, so -1 too) makes
+# the function return without a result.
+# ============================================================
+
 def fix_news_enter_without_selection(data, pe, ptch_va, ptch_off, cave_cursor):
     label = "News list: Enter with nothing selected prints 'Invalid article number: <garbage>'"
     SITE, BACK = 0x004B5877, 0x004B587C
-    # ComputerSystem::selectedArticle(slot) indexes its slot->article table with no range check
-    # (selectedEmail at least handles -1).  With slot -1 (nothing selected yet) it read the heap word
-    # in front of the table and reported it as the article number.
     if verify_site(data, pe, SITE - 3, bytes.fromhex("8B550889118B4134FF3490A104D76500"), label) is None:
         FIXES_SKIPPED.append(label)
         return cave_cursor
@@ -2370,13 +2321,18 @@ def fix_news_enter_without_selection(data, pe, ptch_va, ptch_off, cave_cursor):
     return cave_cursor
 
 
+# ============================================================
+# Fix 29: point-defence panel: a long manufacturer + name wraps onto a second line and
+# pushes everything below it into the ENABLE/DISABLE button.  ShipTextData formats
+# the first line of the PDS info as "`!%s `%%%s\n" (manufacturer, name) and the
+# panel is about 16 characters wide ("Pritchard PSL 10X" does not fit).  Fix: when
+# the two together are longer than 15 characters print the name alone (the
+# Infopedia and the shop still show the full manufacturer + name).
+# ============================================================
+
 def fix_pds_panel_name_overflow(data, pe, ptch_va, ptch_off, cave_cursor):
     label = "Point-defence panel: long manufacturer + name wraps and overlaps the buttons"
     SITE, AFTER_CALL, FORMAT_CALL = 0x004F630B, 0x004F631E, 0x00593B30
-    # ShipTextData: the first line of the PDS info is formatted "`!%s `%%%s\n" (manufacturer, name).  The
-    # panel is about 16 characters wide, so "Pritchard PSL 10X" wraps to a second line and everything
-    # below it moves down into the ENABLE/DISABLE button.  When the two do not fit on one line,
-    # print the name alone (the full manufacturer + name is still shown by the Infopedia/shop).
     if verify_site(data, pe, SITE, bytes.fromhex("51508D45C068"), label) is None \
             or verify_site(data, pe, SITE + 0x0A, bytes.fromhex("50E8"), label + " (format call)") is None \
             or _rel32_target(data, pe, SITE + 0x0B, 1) != FORMAT_CALL \
@@ -2387,9 +2343,6 @@ def fix_pds_panel_name_overflow(data, pe, ptch_va, ptch_off, cave_cursor):
     cave_va = ptch_va + cave_cursor
     c = bytearray()
 
-    def rel(target, opcode_len):
-        return struct.pack("<i", target - (cave_va + len(c) + opcode_len + 4))
-
     c += bytes.fromhex("56" "57" "33D2" "8BF0")                      # PUSH ESI/EDI ; EDX = 0 ; ESI = manufacturer
     c += bytes.fromhex("803E00" "7404" "46" "42" "EBF7")              # count its characters in EDX
     c += bytes.fromhex("8BF1")                                       # ESI = name
@@ -2398,7 +2351,7 @@ def fix_pds_panel_name_overflow(data, pe, ptch_va, ptch_off, cave_cursor):
     c += bytes.fromhex("83FA0F")                                     # CMP EDX,15   (+1 space + newline > 16 columns)
     ja = len(c) + 1; c += b"\x77\x00"                                # JA long
     c += bytes.fromhex("51" "50" "8D45C0")                           # original: PUSH ECX / PUSH EAX / LEA EAX,[EBP-0x40]
-    c += b"\xE9" + rel(SITE + 5, 1)                                  # JMP back (the original PUSH <format> follows)
+    c += b"\xE9" + _rel32(cave_va, len(c), SITE + 5, 1)                                  # JMP back (the original PUSH <format> follows)
     c[ja] = len(c) - (ja + 1)
     c += bytes.fromhex("51" "8D45C0")                                # PUSH name ; LEA EAX,[EBP-0x40]
     c += bytes.fromhex("E800000000" "5A")                            # CALL $+5 ; POP EDX  (position independent)
@@ -2406,9 +2359,9 @@ def fix_pds_panel_name_overflow(data, pe, ptch_va, ptch_off, cave_cursor):
     c += bytes.fromhex("81C2") + b"\0\0\0\0"                         # ADD EDX,<offset of the format below>
     here = len(c)
     c += bytes.fromhex("52" "50")                                    # PUSH format ; PUSH destination
-    c += b"\xE8" + rel(FORMAT_CALL, 1)                               # CALL strUsingArgs
+    c += b"\xE8" + _rel32(cave_va, len(c), FORMAT_CALL, 1)                               # CALL strUsingArgs
     c += bytes.fromhex("83C40C")                                     # ADD ESP,12 (cdecl)
-    c += b"\xE9" + rel(AFTER_CALL, 1)                                # JMP after the original ADD ESP,16
+    c += b"\xE9" + _rel32(cave_va, len(c), AFTER_CALL, 1)                                # JMP after the original ADD ESP,16
     fmt_at = len(c)
     c += b"`%%%s\n\x00"
     struct.pack_into("<i", c, fix_pos, fmt_at - (fix_pos - 3))   # EDX = address of the POP
@@ -2428,19 +2381,24 @@ AUTOPILOT_CAVE = bytes.fromhex(
 )                                                   # assembled by tools/autopilot/asm_ap.py
 
 
+# ============================================================
+# Fix 30: autopilot: after overshooting its destination the ship burns away from it.
+# The final-waypoint "decelerate" state (travel state 4) brakes by facing
+# (angle to the waypoint + 180) and burning while the stopping distance is >= the
+# distance left.  That is only a retro burn while the ship still heads for the
+# waypoint.  Once it has flown past it (a fast engine does, e.g. the GX Delta at
+# 100%) the angle flips, the same heading points along the velocity and the burn
+# accelerates the ship away, draining the batteries.  Fix: use the dot product of
+# the velocity with the vector to the waypoint; if the ship is moving away it
+# faces the waypoint (a real retro burn), otherwise the heading is the stock one.
+# The cave is generated by tools/autopilot/asm_ap.py.
+# ============================================================
+
 def fix_autopilot_overshoot(data, pe, ptch_va, ptch_off, cave_cursor, server=False):
     label = "Autopilot: after overshooting its destination the ship burns away from it" + (" (server)" if server else "")
-    applied, skipped = (SERVER_FIXES_APPLIED, SERVER_FIXES_SKIPPED) if server else (FIXES_APPLIED, FIXES_SKIPPED)
+    applied, skipped = _fix_lists(server)
     SITE = 0x00516E2F if server else 0x0051791F
     BACK = SITE + 0x1E
-    # Ship travel logic, final-waypoint "decelerate" state (travel state 4).  It brakes by facing
-    # (angle to the waypoint + 180) and burning while the stopping distance is >= the distance left.
-    # That is only a retro burn while the ship is still heading for the waypoint.  Once it has flown
-    # past it (a fast engine does, e.g. the GX Delta at 100%), the angle to the waypoint flips, so the
-    # same heading points along the ship's velocity: the burn accelerates it away, draining the
-    # batteries, until the "far enough, turn back" test fires.  The cave uses the dot product of the
-    # ship's velocity with the vector to the waypoint: if the ship is moving away it faces the waypoint
-    # instead (a real retro burn); otherwise the heading is exactly the stock one.
     expected_a = bytes.fromhex("F30F104DF0F30F580D")
     if verify_site(data, pe, SITE, expected_a, label) is None \
             or verify_site(data, pe, SITE + 0x0D, bytes.fromhex("F30F1005"), label + " (360.0)") is None \
@@ -2460,13 +2418,18 @@ def fix_autopilot_overshoot(data, pe, ptch_va, ptch_off, cave_cursor, server=Fal
     return cave_cursor
 
 
+# ============================================================
+# Fix 31: nav map: the "Dist." line of the selected sector is blue within jump range and
+# red outside it, but compared the distance with the drive class's base range
+# ([class+0x104]).  The real range (ShipModule::getCurrentJumpRange, used by the
+# Set Dest. button and the jump itself) is that range times the drive's
+# efficiency, so a drive above 100% showed sectors it can reach as out of range.
+# Fix: compare with getCurrentJumpRange.
+# ============================================================
+
 def fix_nav_jump_range_efficiency(data, pe, ptch_va, ptch_off, cave_cursor):
     label = "Nav map: sector distance ignores a jump drive above 100% efficiency"
     SITE, OK, TOO_FAR, GET_RANGE = 0x00583012, 0x00583023, 0x00583021, 0x004AE800
-    # The "Dist." line for the selected sector is blue if the sector is within jump range and red if not.
-    # It compared the distance with the drive class's base range ([class+0x104]); the game's real range
-    # (ShipModule::getCurrentJumpRange, used by the Set Dest. button and the jump itself) is that range
-    # times the drive's efficiency, so a drive above 100% was shown as out of range for sectors it can reach.
     if verify_site(data, pe, SITE, bytes.fromhex("8B40148B40080F2F9804010000" "7602" "32DB"), label) is None \
             or verify_site(data, pe, GET_RANGE, bytes.fromhex("568BF18B46048B4814"), label + " (getCurrentJumpRange)") is None:
         FIXES_SKIPPED.append(label)
@@ -2489,18 +2452,22 @@ def fix_nav_jump_range_efficiency(data, pe, ptch_va, ptch_off, cave_cursor):
     return cave_cursor
 
 
+# ============================================================
+# Fix 32: autopilot keeps burning the main drive at top speed.  In the "accelerate to the
+# final waypoint" state the drive is switched off once `maxspeed <= speed`, but
+# Ship::accelerate caps the speed by rescaling the velocity vector to exactly
+# maxspeed, and the rescaled vector's length can be a hair under it (1.2999999
+# for 1.3).  The test then fails about every other tick, the drive keeps burning
+# at the cap (a GX Delta at 100% draws 14 kW/s) and the batteries run out, so the
+# ship cannot brake for its destination.  The other autopilot state that makes
+# this test (intermediate waypoints) already allows 1e-5; this one now does too.
+# ============================================================
+
 def fix_autopilot_cruise_burn(data, pe, ptch_va, ptch_off, cave_cursor, server=False):
     label = "Autopilot keeps burning the main drive at top speed" + (" (server)" if server else "")
-    applied, skipped = (SERVER_FIXES_APPLIED, SERVER_FIXES_SKIPPED) if server else (FIXES_APPLIED, FIXES_SKIPPED)
+    applied, skipped = _fix_lists(server)
     SITE = 0x00516D50 if server else 0x00517840
     OFF, ON = SITE + 0x1B, SITE + 0x0E
-    # Ship travel logic, "accelerate to the final waypoint" state.  The drive is switched off once the ship's
-    # speed reaches the class's top speed (`maxspeed <= speed`).  Ship::accelerate caps the speed by rescaling
-    # the velocity vector to exactly that length, but the length of the rescaled vector is then a float that
-    # can come out a hair under the cap (1.2999999 for 1.3), so the test fails about every other tick and the
-    # drive keeps burning at the cap (a GX Delta at 100% draws 14 kW/s), draining the batteries; with the
-    # batteries gone the ship cannot brake for its destination and flies past it.  The other autopilot state
-    # that does this test (the intermediate waypoints) already allows 1e-5; this one now does too.
     if verify_site(data, pe, SITE, bytes.fromhex("F30F1080080100000F2F45EC760D8B4F40E8"), label) is None \
             or verify_site(data, pe, OFF, bytes.fromhex("8B47408B401080786200"), label + " (drive off)") is None:
         skipped.append(label)
@@ -2519,13 +2486,6 @@ def fix_autopilot_cruise_burn(data, pe, ptch_va, ptch_off, cave_cursor, server=F
     print(f"  [OK] {label}")
     applied.append(label)
     return cave_cursor
-
-
-def _rel32_target(data, pe, va, opcode_len):
-    """Absolute target of a rel32 call/jump whose opcode is `opcode_len` bytes long."""
-    off = va_to_offset(pe, va)
-    rel = struct.unpack_from("<i", data, off + opcode_len)[0]
-    return va + opcode_len + 4 + rel
 
 
 # ============================================================
@@ -2655,7 +2615,6 @@ def patch_server_exe(exe_path):
     cave_cursor = VERSION_MARKER_SIZE
     cave_cursor = fix_pirate_hunt_server(data, pe, ptch_va, ptch_off, cave_cursor)
     fix_pirate_hunt_format_string_server(data, pe)
-    cave_cursor = fix_torpedo_lost_target(data, pe, ptch_va, ptch_off, cave_cursor, server=True)
     cave_cursor = fix_power_drain_modifier(data, pe, ptch_va, ptch_off, cave_cursor, server=True)
     cave_cursor = fix_pds_torpedoes(data, pe, ptch_va, ptch_off, cave_cursor, server=True)
     cave_cursor = fix_autopilot_overshoot(data, pe, ptch_va, ptch_off, cave_cursor, server=True)
@@ -3049,8 +3008,9 @@ BACKUP_SUFFIX = ".original-backup"
 # news_*/info_* corrections cannot go through the mod system (the game only reads
 # them from assets/), so they are applied in place; the untouched originals live
 # here, outside assets/ (see apply_data_fixes.apply_inplace).
-ORIGINALS_DIRNAME = "oisbugfix_original_assets"
-INPLACE_PREFIXES = ("news_", "info_")
+# Defined once, in apply_data_fixes.py.  Without that file (the mod is skipped too) there is nothing to restore.
+ORIGINALS_DIRNAME = apply_data_fixes.ORIGINALS_DIRNAME if apply_data_fixes else ""
+INPLACE_PREFIXES = apply_data_fixes.INPLACE_PREFIXES if apply_data_fixes else ()
 
 # state values from inspect_exe()
 STATE_MISSING = "missing"        # file isn't there
@@ -3761,7 +3721,6 @@ def main():
     cave_cursor = fix_ship_sound_listener(data, pe, ptch_va, ptch_off, cave_cursor)
     cave_cursor = fix_module_purchase_email(data, pe, ptch_va, ptch_off, cave_cursor)
     cave_cursor = fix_scenario_autosave(data, pe, ptch_va, ptch_off, cave_cursor)
-    cave_cursor = fix_torpedo_lost_target(data, pe, ptch_va, ptch_off, cave_cursor)
     cave_cursor = fix_power_drain_modifier(data, pe, ptch_va, ptch_off, cave_cursor)
     cave_cursor = fix_pds_torpedoes(data, pe, ptch_va, ptch_off, cave_cursor)
     fix_terminal_power_units(data, pe)

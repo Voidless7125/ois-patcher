@@ -612,16 +612,6 @@ before:
   modifier**, by the amount the game already showed as "Actual". The "Drain (Normal)" and
   "Drain (High)" lines remain "everything idle" / "everything active" figures, so they still
   differ from the total in EMCON mode. (Exe patch, client and server; `tools/power/`.)
-- **A torpedo whose target dies picks the nearest thing instead** - when the
-  ship a torpedo is homing on is destroyed or removed (for example by another
-  torpedo), the game clears the torpedo's target, and the torpedo's homing code
-  treats "no target" as "go and find one": it locks onto the nearest sensor
-  contact, which can be a station, another weapon or your own ship. Now a torpedo
-  that loses its target this way does not look for a new one and stops steering and
-  thrusting, so it drifts on. You can still re-target it from the weapon terminal (by
-  target or by a position) and it homes again. A torpedo fired without any target
-  still behaves as before, and the proximity fuse still works, so a drifting torpedo can
-  still go off if something flies close to it. (Exe patch, client and server.)
 - **Spelling and grammar in the game's text** — about 450 corrections
   across roughly 320 text files (news articles, dialogue, emails, info
   pages): misspellings such as "manouvres", "scavanging", "tarrifs" and
@@ -730,7 +720,6 @@ non-commercial purposes, as long as you credit the original author
 - **New fixes (exe, client):** terminal power units mw -> kw and `STATUS` printing generation as drain; forced/intercom conversations select the first valid option; news-list Enter with nothing selected no longer prints a garbage article number.
 - **New fix:** the point-defence laser can now destroy torpedoes, as the Infopedia says it does (exe, client and server). It still only shoots ships with their IFF off.
 - **New fix:** the power drain shown on the Power screen and the power really taken from the batteries now agree: component power modifiers are applied to both, and active modules are no longer counted at idle + active (exe, client and server). Batteries drain faster on ships whose components have a power modifier.
-- **New fix:** a torpedo whose target is destroyed before impact no longer re-targets the nearest contact (a station, another weapon or you); it drifts, and can be re-targeted by hand (exe, client and server).
 - **New fix:** docking or jumping in a stand-alone (non-story) scenario no longer auto-saves over save slot 1. Only the story scenario saves (exe).
 - **New fix (Fix 22):** module purchase emails were never sent. Buying a
   module from Mechanixx now queues its welcome email for your next comms

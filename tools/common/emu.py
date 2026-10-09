@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tiny Unicorn harness shared by the emulation tests in tools/save and tools/torp
+"""Tiny Unicorn harness shared by the emulation tests in tools/save and tools/pds
 (needs `pip install unicorn pefile`).
 
 The patched exe is loaded into Unicorn at its preferred base and a patched site is run
