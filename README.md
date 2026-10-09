@@ -531,7 +531,7 @@ before:
   your campaign. Only the story scenario (whose description says it "auto-saves
   whenever you dock/undock or use a jumpgate") saves now. Side effect: statistics
   from other scenarios are no longer stored at those moments. (Exe patch, client only.)
-- **Ship terminal shows power in "mw" and STATUS prints generation as drain** - the terminal's
+- **Ship terminal shows power in "mw" and STATUS prints generation as drain** (GitHub issue #38) - the terminal's
   `STATUS`, `POWER` and ship-text lines say "mw" while the power screen and power bar show the same
   numbers in kW, so they are now "kw". The `STATUS` line "Current Power Drain" also printed the
   ship's *generation* (the code computed the drain, then discarded it); it now prints the drain,
@@ -541,7 +541,7 @@ before:
   (Asterin Allas has two "Ok?" options, one for each state of `blr_knowsaboutleague`), so Enter was
   refused as an invalid option. It now selects the first valid option, as every other way of starting
   or advancing a conversation already does. (Exe patch, client.)
-- **News list: Enter with nothing selected shows "Invalid article number: 747614849"** - the news
+- **News list: Enter with nothing selected shows "Invalid article number: 747614849"** (GitHub issue #47; the missing first-article star in that issue is not fixed) - the news
   list indexes its slot table without a range check (the e-mail list handles "nothing selected"),
   so slot -1 read the heap word in front of the table and printed it as the article number. Out-of-range
   slots are now ignored. (Exe patch, client. The missing selection marker on first opening is not
@@ -551,16 +551,16 @@ before:
   with the drive class's base range. The real range (used by the Set Dest. button and the jump itself) is that
   range times the drive's efficiency, so a drive above 100% was shown red for sectors it can reach. The line now
   uses the real range. (Exe patch, client.)
-- **Console tabs: the Weapons and Cargo tabs never showed damage** - on the Enceladus, Ceres (and the Proxima,
+- **Console tabs: the Weapons and Cargo tabs never showed damage** (GitHub issue #45) - on the Enceladus, Ceres (and the Proxima,
   which uses the Ceres screens) and Remora consoles, the Helm Control / Orbital tabs carry `linkto=helm`, which
   is what shows a module's damage static and offline state, but the Weapons tab (a commented-out
   `#linkto=weapon`) and the Cargo tab had no link. They now follow the helm like the other tabs of the console.
   Side effect: with the helm unpowered or destroyed those tabs are unavailable too. (Mod only.)
-- **NPC-only modules are sold in shops** - the game's debug log shows the Remora's RCS ("AP-RCS1", basevalue
+- **NPC-only modules are sold in shops** (GitHub issue #50) - the game's debug log shows the Remora's RCS ("AP-RCS1", basevalue
   2505) and the "Probe Sensor" (basevalue 1872) in station stock: the shop stock generator picks any module
   class with a `basevalue` of at least 1, and these two had one while the rest of `modules_npc.txt` (and the
   Remora sensor, 0) did not. Set to 0 so they are not sold; the Remora and probes keep using them. (Mod only.)
-- **Infopedia list: the last row is cut in half** - the article list is 238 (4:3) / 268 (16:9)
+- **Infopedia list: the last row is cut in half** (GitHub issue #40) - the article list is 238 (4:3) / 268 (16:9)
   units tall but its rows are 8 units high and start 2 units down, so the next entry's top edge showed
   under the last full row. The list is trimmed to a whole number of rows plus a unit of margin (235 / 259). The article text pane beside it is shortened the same way so its last line stops above the bottom edge. (Mod only, no exe patch.)
 - **Autopilot keeps burning the main drive at top speed, draining the batteries** - in the "accelerate to the
@@ -582,12 +582,12 @@ before:
   seconds to distances) is not changed, so a fast ship can still overshoot, but it now brakes instead
   of running away. Applies to NPC ships on the server as well. (Exe patch, client and server;
   `tools/autopilot/`.)
-- **Point-defence panel: a long manufacturer + name wraps and overlaps the buttons** - the panel's
+- **Point-defence panel: a long manufacturer + name wraps and overlaps the buttons** (GitHub issue #46) - the panel's
   first line is "manufacturer name" and the panel is about 16 columns wide, so something like
   "Pritchard PSL 10X" wrapped to a second line and pushed the State/Range/CD lines into the
   ENABLE button. When the two do not fit on one line the name alone is printed (here "PSL 10X").
   The 16-column limit is inferred from a screenshot, not measured. (Exe patch, client.)
-- **The point-defence laser can never destroy a torpedo** - the Infopedia says
+- **The point-defence laser can never destroy a torpedo** (GitHub issue #51) - the Infopedia says
   point-defence lasers "rapidly shoot laser blasts at nearby torpedoes when they are close
   enough to your ship", but the PDS "hits" through the same damage routine ships use, and
   that routine does nothing for torpedoes, probes and mines, so a locked torpedo was never
@@ -599,7 +599,7 @@ before:
   (`hitchance`, 1d6 on the PDL 101) still applies. (Exe patch, client and server;
   `tools/pds/`, client-only emulation test.)
 - **Power drain: the numbers disagree, and the components' power modifiers never
-  applied to the real drain** - every component has a `powermodifier` (extra power
+  applied to the real drain** (GitHub issue #37) - every component has a `powermodifier` (extra power
   use, in percent) and the game shows it on the module screens, the module tooltips,
   the terminal's `POWER DRAIN` list and the "Actual" lines of the Power Management
   page ("Theoretical" is the unmodified figure). But the power actually taken from the
@@ -713,13 +713,13 @@ non-commercial purposes, as long as you credit the original author
 
 ### 0.4.0 - 2026-10-03
 
-- **New fixes:** nav map distance colour uses the real jump range (exe, client); console Weapons/Cargo tabs show the helm's damage (Enceladus, Ceres/Proxima, Remora); the Remora RCS is no longer sold in shops (mod).
+- **New fixes:** nav map distance colour uses the real jump range (exe, client); console Weapons/Cargo tabs show the helm's damage (Enceladus, Ceres/Proxima, Remora; GitHub issue #45); the Remora RCS is no longer sold in shops (mod; GitHub issue #50).
 - **New fix (exe, client and server):** the autopilot no longer burns away from its destination after overshooting it.
-- **New fix (mod):** the Infopedia article list no longer shows half a row at the bottom.
-- **New fix (exe, client):** a long point-defence name no longer wraps over the panel's buttons.
-- **New fixes (exe, client):** terminal power units mw -> kw and `STATUS` printing generation as drain; forced/intercom conversations select the first valid option; news-list Enter with nothing selected no longer prints a garbage article number.
-- **New fix:** the point-defence laser can now destroy torpedoes, as the Infopedia says it does (exe, client and server). It still only shoots ships with their IFF off.
-- **New fix:** the power drain shown on the Power screen and the power really taken from the batteries now agree: component power modifiers are applied to both, and active modules are no longer counted at idle + active (exe, client and server). Batteries drain faster on ships whose components have a power modifier.
+- **New fix (mod; GitHub issue #40):** the Infopedia article list no longer shows half a row at the bottom.
+- **New fix (exe, client; GitHub issue #46):** a long point-defence name no longer wraps over the panel's buttons.
+- **New fixes (exe, client):** terminal power units (GitHub issue #38) mw -> kw and `STATUS` printing generation as drain; forced/intercom conversations select the first valid option; news-list Enter with nothing selected no longer prints a garbage article number (GitHub issue #47).
+- **New fix (GitHub issue #51):** the point-defence laser can now destroy torpedoes, as the Infopedia says it does (exe, client and server). It still only shoots ships with their IFF off.
+- **New fix (GitHub issue #37):** the power drain shown on the Power screen and the power really taken from the batteries now agree: component power modifiers are applied to both, and active modules are no longer counted at idle + active (exe, client and server). Batteries drain faster on ships whose components have a power modifier.
 - **New fix:** docking or jumping in a stand-alone (non-story) scenario no longer auto-saves over save slot 1. Only the story scenario saves (exe).
 - **New fix (Fix 22):** module purchase emails were never sent. Buying a
   module from Mechanixx now queues its welcome email for your next comms
