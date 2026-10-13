@@ -1054,10 +1054,6 @@ TEXT_FIXES = {
     'wap_lukevhan.txt': [
         (1, 'someone but a troopers in my section said it was', 'someone but a trooper in my section said it was'),
     ],
-    'wap_zahkirahsterling.txt': [
-        (1, 'or my wife, Ginat Naive the musician.', 'or my wife, Giant Naive the musician.'),
-        (1, 'my wife, Ginat Naive the musician,', 'my wife, Giant Naive the musician,'),
-    ],
     'wgs_oskarmazur.txt': [
         (1, 'we can do beter than 650.', 'we can do better than 650.'),
     ],
