@@ -2487,6 +2487,9 @@ def fix_autopilot_cruise_burn(data, pe, ptch_va, ptch_off, cave_cursor, server=F
     applied.append(label)
     return cave_cursor
 
+
+# ============================================================
+
 # ============================================================
 # Fix 33: Crash to desktop when returning from a station to the player
 # ship on saves played for some time (GitHub issue #58).
@@ -2619,7 +2622,6 @@ def fix_station_to_ship_crash(data, pe, ptch_va, ptch_off, cave_cursor):
     FIXES_APPLIED.append(label)
     return cave_cursor
 
-# ============================================================
 
 def fix_pirate_hunt_server(data, pe, ptch_va, ptch_off, cave_cursor):
     label = "Pirate Hunt crash guard (server)"
@@ -2750,7 +2752,6 @@ def patch_server_exe(exe_path):
     cave_cursor = fix_pds_torpedoes(data, pe, ptch_va, ptch_off, cave_cursor, server=True)
     cave_cursor = fix_autopilot_overshoot(data, pe, ptch_va, ptch_off, cave_cursor, server=True)
     cave_cursor = fix_autopilot_cruise_burn(data, pe, ptch_va, ptch_off, cave_cursor, server=True)
-    cave_cursor = fix_station_to_ship_crash(data, pe, ptch_va, ptch_off, cave_cursor)
     pe.close()
 
     if cave_cursor > ptch_size:
@@ -3862,6 +3863,7 @@ def main():
     cave_cursor = fix_autopilot_overshoot(data, pe, ptch_va, ptch_off, cave_cursor)
     cave_cursor = fix_autopilot_cruise_burn(data, pe, ptch_va, ptch_off, cave_cursor)
     cave_cursor = fix_nav_jump_range_efficiency(data, pe, ptch_va, ptch_off, cave_cursor)
+    cave_cursor = fix_station_to_ship_crash(data, pe, ptch_va, ptch_off, cave_cursor)
     pe.close()
 
     if cave_cursor > ptch_size:
