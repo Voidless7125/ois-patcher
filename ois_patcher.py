@@ -2487,6 +2487,137 @@ def fix_autopilot_cruise_burn(data, pe, ptch_va, ptch_off, cave_cursor, server=F
     applied.append(label)
     return cave_cursor
 
+# ============================================================
+# Fix 33: Crash to desktop when returning from a station to the player
+# ship on saves played for some time (GitHub issue #58).
+#
+# Cocos2d-x's RenderTexture::begin / Node::visit / RenderTexture::end
+# (called inside ScreenInterface::update) is deferred: it pushes
+# QuadCommands holding raw pointers to each TextField's TextureAtlas
+# quads into cocos2d::Renderer's command queue, to be drawn later when
+# Director::drawScene runs at the end of the frame.
+#
+# Two places in ois.exe queued a ScreenInterface::update pass and then
+# destroyed that same ScreenInterface (and its TextFields) later in the
+# SAME frame before Director::drawScene flushed the queue:
+#   1. PresentationInterface::update called Room::runLogic (which calls
+#      ScreenInterface::update on all monitors in the current room, such
+#      as the station airlock's news/info screens) BEFORE calling
+#      runFullFadeLogic. On the frame the 0.3s fade-out timer expired for
+#      leaveDockedVessel / boardDockedVessel / boardMooredStructure,
+#      runFullFadeLogic called showRoom -> cleanupCurrentRoom, freeing
+#      the outgoing room's ScreenInterfaces while their RenderTexture
+#      QuadCommands from Room::runLogic were still queued for drawScene.
+#   2. Inside Room::runLogic's per-object loop, ScreenInterface::update
+#      ran at the top of the loop body BEFORE the three state/visibility
+#      checks (+0x514, +0x5c4, +0x4a4) that call RoomObject::render ->
+#      cleanupObject, which deletes and recreates the object's
+#      ScreenInterfaces whenever its state or visibility changes.
+#
+# Fix:
+#   (a) Run runFullFadeLogic before Room::runLogic in
+#       PresentationInterface::update, and skip Room::runLogic while
+#       fading out (m_fadeState == 1) or on the frame a fade transition
+#       swaps rooms (showRoom -> Room::render already updates the new
+#       room's screens).
+#   (b) In Room::runLogic, run ScreenInterface::update after the three
+#       RoomObject::render state/visibility checks instead of before them.
+# ============================================================
+
+def fix_station_to_ship_crash(data, pe, ptch_va, ptch_off, cave_cursor):
+    label = "Crash returning from a station to the player ship (RenderTexture use-after-free)"
+
+    # --- Site A: PresentationInterface::update before Room::runLogic ---
+    UPD_SITE_VA = 0x0052ef66
+    UPD_RESUME_VA = 0x0052ef6c
+    UPD_SKIP_ROOM_VA = 0x0052ef7a
+    FADE_CALL_SITE_VA = 0x0052f193
+    RUN_FADE_LOGIC_VA = 0x0052e1f0
+
+    # --- Site B: Room::runLogic ScreenInterface::update ordering ---
+    RL_EARLY_JNE_VA = 0x00536bba
+    RL_LATE_SITE_VA = 0x00536e5e
+    RL_LATE_RESUME_VA = 0x00536e6a
+    SCREEN_UPDATE_VA = 0x00557320
+
+    exp_upd = bytes.fromhex("8B8ED4020000")                 # MOV ECX,[ESI+0x2d4]
+    exp_fade = bytes.fromhex("E858F0FFFF")                  # CALL 0x0052e1f0 (runFullFadeLogic)
+    exp_rl_early = bytes.fromhex("83793C04" "751D")         # CMP dword [ECX+0x3c],4 ; JNE 0x536bdd
+    exp_rl_late = bytes.fromhex("8B8690000000" "0F57C9" "8B3C07")  # MOV EAX,[ESI+0x90] ; XORPS XMM1,XMM1 ; MOV EDI,[EDI+EAX]
+
+    off_upd = verify_site(data, pe, UPD_SITE_VA, exp_upd, label + " (update room logic)")
+    off_fade = verify_site(data, pe, FADE_CALL_SITE_VA, exp_fade, label + " (late runFullFadeLogic call)")
+    off_rl_early = verify_site(data, pe, RL_EARLY_JNE_VA, exp_rl_early, label + " (runLogic early screen update)")
+    off_rl_late = verify_site(data, pe, RL_LATE_SITE_VA, exp_rl_late, label + " (runLogic post-render site)")
+    if None in (off_upd, off_fade, off_rl_early, off_rl_late):
+        return bail(label, cave_cursor)
+
+    for site, length in ((UPD_SITE_VA, 6), (FADE_CALL_SITE_VA, 5), (RL_EARLY_JNE_VA, 6), (RL_LATE_SITE_VA, 12)):
+        neutralize_relocations(data, pe, site, length, label)
+
+    # Cave 1: at 0x0052ef66, run runFullFadeLogic(dt) first. If a fade-out is
+    # active ([ESI+0x29c] == 1) or a transition action ([ESI+0x2a4]) just fired
+    # on this tick, skip Room::runLogic so no outgoing room queues RenderTexture
+    # commands before cleanupCurrentRoom and no newly-shown room is updated twice.
+    cave1_va = ptch_va + cave_cursor
+    c1 = bytearray()
+    c1 += bytes.fromhex("FF B6 A4 02 00 00")                # PUSH dword [ESI+0x2a4] (pre-call fade action)
+    c1 += bytes.fromhex("F3 0F 10 4D 08")                   # MOVSS XMM1,[EBP+0x8]   (dt)
+    c1 += bytes.fromhex("8B CE")                            # MOV ECX,ESI
+    c1 += b"\xE8" + _rel32(cave1_va, len(c1), RUN_FADE_LOGIC_VA, 1)  # CALL runFullFadeLogic
+    c1 += bytes.fromhex("58")                               # POP EAX                (old fade action)
+    c1 += bytes.fromhex("83 BE 9C 02 00 00 01")             # CMP dword [ESI+0x29c],1 (fading out to black?)
+    c1 += b"\x0F\x84" + _rel32(cave1_va, len(c1), UPD_SKIP_ROOM_VA, 2)  # JE skip_room_logic
+    c1 += bytes.fromhex("85 C0")                            # TEST EAX,EAX           (was a transition pending?)
+    jz_normal = len(c1) + 1
+    c1 += b"\x74\x00"                                       # JZ normal
+    c1 += bytes.fromhex("83 BE A4 02 00 00 00")             # CMP dword [ESI+0x2a4],0 (did it just fire?)
+    c1 += b"\x0F\x84" + _rel32(cave1_va, len(c1), UPD_SKIP_ROOM_VA, 2)  # JE skip_room_logic
+    c1[jz_normal] = len(c1) - (jz_normal + 1)
+    c1 += exp_upd                                           # MOV ECX,[ESI+0x2d4]
+    c1 += b"\xE9" + _rel32(cave1_va, len(c1), UPD_RESUME_VA, 1)
+
+    data[ptch_off + cave_cursor: ptch_off + cave_cursor + len(c1)] = c1
+    cave_cursor += len(c1)
+
+    # Cave 2: at 0x00536e5e in Room::runLogic, after any RoomObject::render
+    # rebuilds for this object have completed, run ScreenInterface::update if
+    # this object is a screen ([EDI+0x3c] == 4).
+    cave2_va = ptch_va + cave_cursor
+    c2 = bytearray()
+    c2 += bytes.fromhex("8B 86 90 00 00 00")                # MOV EAX,[ESI+0x90]
+    c2 += bytes.fromhex("8B 3C 07")                         # MOV EDI,[EDI+EAX]      (RoomObject*)
+    c2 += bytes.fromhex("83 7F 3C 04")                      # CMP dword [EDI+0x3c],4
+    jne_skip = len(c2) + 1
+    c2 += b"\x75\x00"                                       # JNE done
+    c2 += bytes.fromhex("8B 87 88 03 00 00")                # MOV EAX,[EDI+0x388]
+    c2 += bytes.fromhex("8B 8C 87 24 06 00 00")             # MOV ECX,[EDI+EAX*4+0x624] (ScreenInterface*)
+    c2 += bytes.fromhex("85 C9")                            # TEST ECX,ECX
+    je_skip = len(c2) + 1
+    c2 += b"\x74\x00"                                       # JE done
+    c2 += bytes.fromhex("F3 0F 10 4D EC")                   # MOVSS XMM1,[EBP-0x14]  (dt)
+    c2 += bytes.fromhex("51")                               # PUSH ECX               (bool param_2)
+    c2 += b"\xE8" + _rel32(cave2_va, len(c2), SCREEN_UPDATE_VA, 1)  # CALL ScreenInterface::update
+    c2[jne_skip] = len(c2) - (jne_skip + 1)
+    c2[je_skip] = len(c2) - (je_skip + 1)
+    c2 += bytes.fromhex("0F 57 C9")                         # XORPS XMM1,XMM1
+    c2 += b"\xE9" + _rel32(cave2_va, len(c2), RL_LATE_RESUME_VA, 1)
+
+    data[ptch_off + cave_cursor: ptch_off + cave_cursor + len(c2)] = c2
+    cave_cursor += len(c2)
+
+    # Patch Site 1A (0x0052ef66): JMP cave1 + NOP
+    data[off_upd:off_upd + 6] = b"\xE9" + struct.pack("<i", cave1_va - (UPD_SITE_VA + 5)) + b"\x90"
+    # Patch Site 1B (0x0052f193): NOP out the old late CALL runFullFadeLogic
+    data[off_fade:off_fade + 5] = b"\x90" * 5
+    # Patch Site 2A (0x00536bbe): change JNE (75 1D) to JMP (EB 1D) to skip early ScreenInterface::update
+    data[off_rl_early + 4] = 0xEB
+    # Patch Site 2B (0x00536e5e): JMP cave2 + 7 NOPs
+    data[off_rl_late:off_rl_late + 12] = b"\xE9" + struct.pack("<i", cave2_va - (RL_LATE_SITE_VA + 5)) + b"\x90" * 7
+
+    print(f"  [OK] {label}")
+    FIXES_APPLIED.append(label)
+    return cave_cursor
 
 # ============================================================
 
@@ -2619,6 +2750,7 @@ def patch_server_exe(exe_path):
     cave_cursor = fix_pds_torpedoes(data, pe, ptch_va, ptch_off, cave_cursor, server=True)
     cave_cursor = fix_autopilot_overshoot(data, pe, ptch_va, ptch_off, cave_cursor, server=True)
     cave_cursor = fix_autopilot_cruise_burn(data, pe, ptch_va, ptch_off, cave_cursor, server=True)
+    cave_cursor = fix_station_to_ship_crash(data, pe, ptch_va, ptch_off, cave_cursor)
     pe.close()
 
     if cave_cursor > ptch_size:
