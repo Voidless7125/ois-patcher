@@ -39,7 +39,7 @@ is actually in it, and if two installs are found the choice is put to
 the user rather than guessed at.
 
 Expects apply_data_fixes.py and a "mod" folder containing "oisbugfix"
-(just modinfo.txt) next to this script -- ship all three together when
+(just modinfo.txt) next to this script -- ship all of them together (text_fixes.py carries the text corrections) when
 distributing this patcher. Skips mod installation with a warning,
 rather than failing, if either is missing.
 
@@ -70,14 +70,10 @@ Applies (all client-only, ois.exe):
     over-strict bit-exact position comparison, a per-frame recompute
     with no "already handled" gate, and a numerical instability in the
     burn-angle calculation itself near a singularity.
-  - Mail/PC terminal DEL/DIR crash + feature: DEL can delete an
-    unprotected (COM) command ("Deleted.", green) but refuses a
-    protected (EXE) one ("cannot delete system file", yellow, reusing
-    the original developers' own unused string for it); a deleted
-    command stops matching in the terminal and disappears from DIR.
-    All of this is confirmed transient -- never touches save data,
-    rebuilt fresh by Screen_PC's constructor on every undock/redock,
-    save load, or game restart.
+  - Mail/PC terminal DEL crash: typing DEL with a name that has no
+    extension (e.g. "DEL NEWS") read past the end of the split-argument
+    vector. Now reports the game's own "cannot delete system file"
+    message. DEL still never deletes anything, as in the original game.
   - "Unknown room" log spam: cycling past a ship's last room repeatedly
     logs an [ERROR], because the existence check itself always logs on
     a miss even when the caller is only asking "does this room exist"
@@ -155,7 +151,7 @@ SERVER_FIXES_SKIPPED = []
 # already patched" refusal means "you already ran this exact version" or
 # "an older version patched this -- restore the backup and re-run to
 # upgrade", instead of one generic message either way.
-PATCHER_VERSION = "0.3.9"
+PATCHER_VERSION = "0.4.0"
 VERSION_MARKER_PREFIX = b"OISPATCH:"
 VERSION_MARKER_SIZE = 32  # reserved bytes at the start of .ptch's raw data
 
@@ -236,6 +232,29 @@ def neutralize_relocations(data, pe, va, length, label):
         struct.pack_into("<H", data, file_off, IMAGE_REL_BASED_ABSOLUTE)
     if conflicts:
         print(f"    neutralized {len(conflicts)} relocation entr{'y' if len(conflicts)==1 else 'ies'} in {label}'s patch range")
+
+
+def _rel32_target(data, pe, va, opcode_len):
+    """Absolute target of a rel32 call/jump whose opcode is `opcode_len` bytes long."""
+    off = va_to_offset(pe, va)
+    rel = struct.unpack_from("<i", data, off + opcode_len)[0]
+    return va + opcode_len + 4 + rel
+
+
+def _rel32(cave_va, at, target, opcode_len):
+    """rel32 operand for a branch/call whose opcode starts at cave_va + at and is opcode_len bytes long."""
+    return struct.pack("<i", target - (cave_va + at + opcode_len + 4))
+
+
+def _fix_lists(server):
+    """(applied, skipped) lists of the exe being patched."""
+    return (SERVER_FIXES_APPLIED, SERVER_FIXES_SKIPPED) if server else (FIXES_APPLIED, FIXES_SKIPPED)
+
+
+def bail(label, cave_cursor, server=False):
+    """Records `label` as skipped and returns the unchanged cave cursor."""
+    _fix_lists(server)[1].append(label)
+    return cave_cursor
 
 
 # ============================================================
@@ -336,7 +355,7 @@ def add_ptch_section(data):
     sec_hdr_off = ptch_section.get_file_offset()
     pe2.close()
 
-    CAVE_FILE_SIZE = 0x400
+    CAVE_FILE_SIZE = 0x800
     new_raw_data_offset = len(data)
     if new_raw_data_offset % file_align != 0:
         data.extend(b"\x00" * (file_align - (new_raw_data_offset % file_align)))
@@ -802,131 +821,113 @@ def fix_pda_render_guard(data, pe, ptch_va, ptch_off, cave_cursor):
 
 
 # ============================================================
-# Fix 8 (fix8-fix11): DEL command match-branch crash + extension OOB +
-# DIR listing skip + distinct Deleted/protected messages
+# Fix 8: mail/PC terminal DEL command crash when the argument has no
+# extension (e.g. "DEL NEWS"). The original DEL handler, on a name match,
+# unconditionally reads the extension token (token[1]) of the split
+# argument -- past the end of a one-element vector when no ".EXT" was
+# typed -- and again after the match loop. Both reads crash or read
+# garbage. Every command is protected in the shipped game ("cannot delete
+# system file" for anything that matches), so DEL never deletes anything;
+# this fix only removes the crash and reports the same protected message
+# the developers' own code prints for the with-extension case.
+#
+# History: releases 0.3.0 through 0.3.8 also made DEL able to
+# delete COM commands. That was a regression -- the original game never
+# deleted anything -- and has been removed.
 # ============================================================
 
+def _emit_vector_count_gt1_check(emit, ebp_end=0xD8, ebp_begin=0xD4):
+    """Emit: eax = (vec_end - vec_begin) / 24 ; cmp eax, 1 (flags for jbe)."""
+    emit(bytes([0x8B, 0x4D, ebp_end]))                 # mov ecx,[ebp-0x28]
+    emit(bytes([0x2B, 0x4D, ebp_begin]))               # sub ecx,[ebp-0x2c]
+    emit(bytes([0xB8, 0xAB, 0xAA, 0xAA, 0x2A]))        # mov eax,0x2AAAAAAB
+    emit(bytes([0xF7, 0xE9]))                          # imul ecx
+    emit(bytes([0xC1, 0xFA, 0x02]))                    # sar edx,2
+    emit(bytes([0x8B, 0xC2]))                          # mov eax,edx
+    emit(bytes([0xC1, 0xE8, 0x1F]))                    # shr eax,31
+    emit(bytes([0x03, 0xC2]))                          # add eax,edx
+    emit(bytes([0x83, 0xF8, 0x01]))                    # cmp eax,1
+
+
 def fix_del_command(data, pe, ptch_va, ptch_off, cave_cursor):
-    label = "Mail terminal DEL crash + delete-a-COM-command feature"
+    label = "Mail terminal DEL crash on a name with no extension (+ DIR listing guard)"
 
-    # --- fix8: matched-command branch, corrected flag-address formula ---
-    PATCH_SITE_VA, PATCH_SITE_END = 0x00548f34, 0x00549029
-    PATCH_SITE_LEN = PATCH_SITE_END - PATCH_SITE_VA
-    PROTECTED_MSG_VA = 0x00548ff5
-    RESUME_VA = PATCH_SITE_END
-
-    expected_start = bytes([0x8B, 0x4F, 0x2C, 0x8D, 0x5F, 0x18])
-    off = verify_site(data, pe, PATCH_SITE_VA, expected_start, label + " (fix8 site)")
-    if off is None:
-        FIXES_SKIPPED.append(label)
-        return cave_cursor
-    tail_expected = bytes([0xE8, 0x5A, 0x4F, 0xEE, 0xFF, 0x8B, 0x7D, 0xD4])
-    tail_off = va_to_offset(pe, PATCH_SITE_END - len(tail_expected))
-    if tail_off is None or bytes(data[tail_off:tail_off + len(tail_expected)]) != tail_expected:
-        print(f"  [SKIP] {label}: fix8 patch-site tail mismatch")
+    # --- site A: inside the match loop, on a name match ---
+    SITE_A_VA, RESUME_A_VA, PROTECTED_MSG_VA = 0x00548f34, 0x00548f3a, 0x00548ff5
+    expected_a = bytes([0x8B, 0x4F, 0x2C, 0x8D, 0x5F, 0x18])
+    off_a = verify_site(data, pe, SITE_A_VA, expected_a, label + " (match branch)")
+    if off_a is None:
         FIXES_SKIPPED.append(label)
         return cave_cursor
 
-    neutralize_relocations(data, pe, PATCH_SITE_VA, PATCH_SITE_LEN, label + " (fix8)")
+    # --- site B: after the loop, extension upper-casing pass ---
+    SITE_B_VA, RESUME_B_VA, SKIP_B_VA = 0x005490ae, 0x005490b4, 0x0054910c
+    expected_b = bytes([0x8B, 0x4F, 0x2C, 0x8D, 0x5F, 0x18])
+    off_b = verify_site(data, pe, SITE_B_VA, expected_b, label + " (post-loop)")
+    if off_b is None:
+        FIXES_SKIPPED.append(label)
+        return cave_cursor
 
+    # Site A: <=1 token -> print the protected message (the original code's
+    # own block at PROTECTED_MSG_VA); otherwise replay the two displaced
+    # instructions and continue as the original did.
     cave = bytearray()
     def emit(b): cave.extend(b)
-
-    emit(bytes([0x89, 0xCB]))
-    emit(bytes([0x8B, 0x45, 0xF0]))
-    emit(bytes([0x8B, 0x40, 0x44]))
-    emit(bytes([0x89, 0xDA]))
-    emit(bytes([0x29, 0xC2]))
-    emit(bytes([0x89, 0xC3]))
-    emit(bytes([0x89, 0xD0]))
-    emit(bytes([0x31, 0xD2]))
-    emit(bytes([0xB9, 0x78, 0x00, 0x00, 0x00]))
-    emit(bytes([0xF7, 0xF1]))
-    emit(bytes([0x69, 0xC8, 0x78, 0x00, 0x00, 0x00]))
-    emit(bytes([0x01, 0xD9]))
-    # flag byte lives inside each entry's own struct at entry+0x48 -- NOT a
-    # separately packed array; ECX already holds the entry address here.
-    emit(bytes([0x8D, 0x51, 0x48]))
-    emit(bytes([0x0F, 0xB6, 0x12]))
-    emit(bytes([0x85, 0xD2]))
-    jnz_pos = len(cave)
-    emit(bytes([0x75, 0]))
-    emit(bytes([0xC6, 0x01, 0x00]))
-    emit(bytes([0xC7, 0x41, 0x10, 0x00, 0x00, 0x00, 0x00]))
-    emit(bytes([0x8B, 0x7D, 0xD4]))
+    _emit_vector_count_gt1_check(emit)
+    jbe_pos = len(cave)
+    emit(bytes([0x76, 0]))                             # jbe -> protected
+    emit(expected_a)                                   # replay displaced instrs
     jmp_resume_pos = len(cave)
     emit(bytes([0xE9, 0, 0, 0, 0]))
     protected_pos = len(cave)
     emit(bytes([0xE9, 0, 0, 0, 0]))
 
     cave_va = ptch_va + cave_cursor
-    jnz_rel8 = protected_pos - (jnz_pos + 2)
-    assert -128 <= jnz_rel8 <= 127
-    cave[jnz_pos + 1] = jnz_rel8 & 0xFF
-    struct.pack_into("<i", cave, jmp_resume_pos + 1, RESUME_VA - (cave_va + jmp_resume_pos + 5))
+    jbe_rel8 = protected_pos - (jbe_pos + 2)
+    assert -128 <= jbe_rel8 <= 127
+    cave[jbe_pos + 1] = jbe_rel8 & 0xFF
+    struct.pack_into("<i", cave, jmp_resume_pos + 1, RESUME_A_VA - (cave_va + jmp_resume_pos + 5))
     struct.pack_into("<i", cave, protected_pos + 1, PROTECTED_MSG_VA - (cave_va + protected_pos + 5))
-
-    fix8_cave_va = cave_va
     data[ptch_off + cave_cursor: ptch_off + cave_cursor + len(cave)] = cave
 
     redirect = bytearray([0xE9, 0, 0, 0, 0])
-    struct.pack_into("<i", redirect, 1, cave_va - (PATCH_SITE_VA + 5))
-    redirect += b"\x90" * (PATCH_SITE_LEN - len(redirect))
-    data[off:off + PATCH_SITE_LEN] = redirect
-
+    struct.pack_into("<i", redirect, 1, cave_va - (SITE_A_VA + 5))
+    redirect += b"\x90" * (6 - len(redirect))
+    data[off_a:off_a + 6] = redirect
     cave_cursor += len(cave)
 
-    # --- fix9: extension token read past the end of a single-element vector ---
-    PATCH_SITE_VA2, RESUME_VA2, SKIP_VA2 = 0x005490ae, 0x005490b4, 0x0054910c
-    expected2 = bytes([0x8B, 0x4F, 0x2C, 0x8D, 0x5F, 0x18])
-    off2 = verify_site(data, pe, PATCH_SITE_VA2, expected2, label + " (fix9 site)")
-    if off2 is None:
-        FIXES_SKIPPED.append(label)
-        return cave_cursor
-
+    # Site B: <=1 token -> skip the extension pass entirely.
     cave2 = bytearray()
     def emit2(b): cave2.extend(b)
-
-    emit2(bytes([0x8B, 0x4D, 0xD8]))
-    emit2(bytes([0x2B, 0x4D, 0xD4]))
-    emit2(bytes([0xB8, 0xAB, 0xAA, 0xAA, 0x2A]))
-    emit2(bytes([0xF7, 0xE9]))
-    emit2(bytes([0xC1, 0xFA, 0x02]))
-    emit2(bytes([0x8B, 0xC2]))
-    emit2(bytes([0xC1, 0xE8, 0x1F]))
-    emit2(bytes([0x03, 0xC2]))
-    emit2(bytes([0x83, 0xF8, 0x01]))
-    jbe_pos = len(cave2)
+    _emit_vector_count_gt1_check(emit2)
+    jbe_pos2 = len(cave2)
     emit2(bytes([0x76, 0]))
-    emit2(bytes([0x8B, 0x4F, 0x2C]))
-    emit2(bytes([0x8D, 0x5F, 0x18]))
+    emit2(expected_b)
     jmp_resume_pos2 = len(cave2)
     emit2(bytes([0xE9, 0, 0, 0, 0]))
     skip_pos2 = len(cave2)
-    emit2(bytes([0x8B, 0x7D, 0xD4]))
+    emit2(bytes([0x8B, 0x7D, 0xD4]))                   # mov edi,[ebp-0x2c]
     jmp_skip_pos2 = len(cave2)
     emit2(bytes([0xE9, 0, 0, 0, 0]))
 
     cave_va2 = ptch_va + cave_cursor
-    jbe_rel8 = skip_pos2 - (jbe_pos + 2)
+    jbe_rel8 = skip_pos2 - (jbe_pos2 + 2)
     assert -128 <= jbe_rel8 <= 127
-    cave2[jbe_pos + 1] = jbe_rel8 & 0xFF
-    struct.pack_into("<i", cave2, jmp_resume_pos2 + 1, RESUME_VA2 - (cave_va2 + jmp_resume_pos2 + 5))
-    struct.pack_into("<i", cave2, jmp_skip_pos2 + 1, SKIP_VA2 - (cave_va2 + jmp_skip_pos2 + 5))
-
+    cave2[jbe_pos2 + 1] = jbe_rel8 & 0xFF
+    struct.pack_into("<i", cave2, jmp_resume_pos2 + 1, RESUME_B_VA - (cave_va2 + jmp_resume_pos2 + 5))
+    struct.pack_into("<i", cave2, jmp_skip_pos2 + 1, SKIP_B_VA - (cave_va2 + jmp_skip_pos2 + 5))
     data[ptch_off + cave_cursor: ptch_off + cave_cursor + len(cave2)] = cave2
 
     redirect2 = bytearray([0xE9, 0, 0, 0, 0])
-    struct.pack_into("<i", redirect2, 1, cave_va2 - (PATCH_SITE_VA2 + 5))
+    struct.pack_into("<i", redirect2, 1, cave_va2 - (SITE_B_VA + 5))
     redirect2 += b"\x90" * (6 - len(redirect2))
-    data[off2:off2 + 6] = redirect2
-
+    data[off_b:off_b + 6] = redirect2
     cave_cursor += len(cave2)
 
-    # --- fix10: cmd_DIR listing loop skips zero-length (deleted) entries ---
+    # --- cmd_DIR listing loop skips zero-length (emptied) entries ---
     PATCH_SITE_VA3, RESUME_VA3, EXIT_VA3 = 0x00548530, 0x00548535, 0x0054859a
     expected3 = bytes([0x83, 0x7C, 0x33, 0x14, 0x10])
-    off3 = verify_site(data, pe, PATCH_SITE_VA3, expected3, label + " (fix10 site)")
+    off3 = verify_site(data, pe, PATCH_SITE_VA3, expected3, label + " (DIR listing)")
     if off3 is None:
         FIXES_SKIPPED.append(label)
         return cave_cursor
@@ -974,87 +975,6 @@ def fix_del_command(data, pe, ptch_va, ptch_off, cave_cursor):
     data[off3:off3 + 5] = redirect3
 
     cave_cursor += len(cave3)
-
-    # --- fix11: distinct "Deleted." / "cannot delete system file" messages ---
-    ASSIGN_FN_VA, ADDLINE_FN_VA = 0x004028d0, 0x0042df80
-    PROTECTED_EXISTING_STR_VA = 0x62376c
-    RESUME_VA4 = 0x00549029
-
-    fix8_redirect = bytes(data[off:off + 5])
-    fix8_cave_va_check = PATCH_SITE_VA + 5 + struct.unpack("<i", fix8_redirect[1:5])[0]
-    resume_jmp_off = va_to_offset(pe, fix8_cave_va_check + 0x38)
-    protected_jmp_off = va_to_offset(pe, fix8_cave_va_check + 0x3D)
-    resume_jmp = bytes(data[resume_jmp_off:resume_jmp_off + 5]) if resume_jmp_off else b""
-    protected_jmp = bytes(data[protected_jmp_off:protected_jmp_off + 5]) if protected_jmp_off else b""
-    if (resume_jmp_off is None or protected_jmp_off is None
-            or resume_jmp[:1] != b"\xE9" or protected_jmp[:1] != b"\xE9"):
-        print(f"  [SKIP] {label}: fix11 couldn't locate fix8's exit jumps")
-        FIXES_SKIPPED.append(label)
-        return cave_cursor
-
-    def emit_message_block(cave, length, pic_targets, fixed_calls, resume_jmps):
-        block_pos = len(cave)
-        cave.extend(bytes([0x83, 0xEC, 0x18]))
-        cave.extend(bytes([0xC6, 0x45, 0x0B, 0x01]))
-        cave.extend(bytes([0x8B, 0xCC]))
-        cave.extend(bytes([0x6A, length]))
-        cave.extend(bytes([0xC7, 0x41, 0x10, 0x00, 0x00, 0x00, 0x00]))
-        cave.extend(bytes([0xC7, 0x41, 0x14, 0x0F, 0x00, 0x00, 0x00]))
-        call_pos = len(cave)
-        cave.extend(bytes([0xE8, 0x00, 0x00, 0x00, 0x00]))
-        cave.extend(bytes([0x58]))
-        add_pos = len(cave)
-        cave.extend(bytes([0x05, 0, 0, 0, 0]))
-        pic_targets.append((call_pos, add_pos))
-        cave.extend(bytes([0x50]))
-        cave.extend(bytes([0xC6, 0x01, 0x00]))
-        assign_call_pos = len(cave)
-        cave.extend(bytes([0xE8, 0, 0, 0, 0]))
-        fixed_calls.append((assign_call_pos, ASSIGN_FN_VA))
-        cave.extend(bytes([0x8B, 0x45, 0xF0]))
-        cave.extend(bytes([0x8B, 0x48, 0x2C]))
-        addline_call_pos = len(cave)
-        cave.extend(bytes([0xE8, 0, 0, 0, 0]))
-        fixed_calls.append((addline_call_pos, ADDLINE_FN_VA))
-        cave.extend(bytes([0x8B, 0x7D, 0xD4]))
-        jmp_pos = len(cave)
-        cave.extend(bytes([0xE9, 0, 0, 0, 0]))
-        resume_jmps.append(jmp_pos)
-        return block_pos
-
-    cave4 = bytearray()
-    pic_targets, fixed_calls, resume_jmps = [], [], []
-    deleted_block_pos = emit_message_block(cave4, 0x08, pic_targets, fixed_calls, resume_jmps)
-    deleted_pic = pic_targets[-1]
-    protected_block_pos = emit_message_block(cave4, 0x1B, pic_targets, fixed_calls, resume_jmps)
-    protected_pic = pic_targets[-1]
-    deleted_str_pos = len(cave4)
-    cave4.extend(b"Deleted.\x00")
-
-    cave_va4 = ptch_va + cave_cursor
-    deleted_call_pos, deleted_add_pos = deleted_pic
-    struct.pack_into("<i", cave4, deleted_add_pos + 1,
-                      (cave_va4 + deleted_str_pos) - (cave_va4 + deleted_call_pos + 5))
-    protected_call_pos, protected_add_pos = protected_pic
-    struct.pack_into("<i", cave4, protected_add_pos + 1,
-                      PROTECTED_EXISTING_STR_VA - (cave_va4 + protected_call_pos + 5))
-    for pos, target_va in fixed_calls:
-        struct.pack_into("<i", cave4, pos + 1, target_va - (cave_va4 + pos + 5))
-    for pos in resume_jmps:
-        struct.pack_into("<i", cave4, pos + 1, RESUME_VA4 - (cave_va4 + pos + 5))
-
-    data[ptch_off + cave_cursor: ptch_off + cave_cursor + len(cave4)] = cave4
-
-    deleted_block_va = cave_va4 + deleted_block_pos
-    protected_block_va = cave_va4 + protected_block_pos
-    new_resume_jmp = bytearray([0xE9, 0, 0, 0, 0])
-    struct.pack_into("<i", new_resume_jmp, 1, deleted_block_va - (fix8_cave_va_check + 0x38 + 5))
-    data[resume_jmp_off:resume_jmp_off + 5] = new_resume_jmp
-    new_protected_jmp = bytearray([0xE9, 0, 0, 0, 0])
-    struct.pack_into("<i", new_protected_jmp, 1, protected_block_va - (fix8_cave_va_check + 0x3D + 5))
-    data[protected_jmp_off:protected_jmp_off + 5] = new_protected_jmp
-
-    cave_cursor += len(cave4)
 
     print(f"  [OK] {label}")
     FIXES_APPLIED.append(label)
@@ -1692,6 +1612,115 @@ def fix_decrease_drive_label(data, pe):
 
 
 # ============================================================
+# Fix 22: module purchase emails are never sent.
+# Every module data file can carry an `email=` text ("Congratulations on
+# purchasing your Kruger Interstellar DRAK Grappling Arm! ..."; 71 of them
+# ship in the game). DataLoader::createModule stores it in the module class
+# (ShipModuleClass+0x68), but nothing in the game ever reads it, so buying
+# a module at Mechanixx never delivers it. This hooks
+# TradeEngine::performModuleTransaction right after the module is installed
+# and queues the email through the game's own EmailManager::addCustomEmail
+# (the same call used for passenger and smuggler-reward mail, which arrives
+# on the next comms sync), addressed from the module's own manufacturer
+# (ShipModuleClass+0x38) with the subject "Your new <module name>"
+# (ShipModuleClass+8) and the module's own email text as the body. Modules
+# with no email text are skipped. Nothing here references an absolute
+# address, so it is ASLR-safe: only relative calls to functions and a
+# position-independent format string.
+# ============================================================
+
+def fix_module_purchase_email(data, pe, ptch_va, ptch_off, cave_cursor):
+    label = "Module purchase emails are never sent"
+    SITE_VA, RESUME_VA = 0x00495ad8, 0x00495add
+    COPY_STR_VA, FORMAT_VA = 0x00402720, 0x00593b30       # std::string copy ctor / strUsingArgs
+    GET_EMAIL_MGR_VA, ADD_CUSTOM_EMAIL_VA = 0x004129d0, 0x0043acb0
+    expected = bytes([0x8B, 0x03, 0x83, 0xEC, 0x18])      # MOV EAX,[EBX] ; SUB ESP,0x18
+    off = verify_site(data, pe, SITE_VA, expected, label)
+    if off is None:
+        FIXES_SKIPPED.append(label)
+        return cave_cursor
+    # the functions we call must be the ones we think they are
+    for va, sig, what in (
+        (COPY_STR_VA, None, "string copy ctor"),
+        (FORMAT_VA, bytes([0x55, 0x8B, 0xEC, 0xB8, 0x0C, 0x40, 0x00, 0x00]), "strUsingArgs"),
+        (GET_EMAIL_MGR_VA, bytes([0x55, 0x8B, 0xEC, 0x51]), "EmailManager::getInstance"),
+        (ADD_CUSTOM_EMAIL_VA, bytes([0x55, 0x8B, 0xEC, 0x6A, 0xFF, 0x68, 0x18, 0x50, 0x5B, 0x00]), "addCustomEmail"),
+    ):
+        if sig is not None and verify_site(data, pe, va, sig, label + f" ({what})") is None:
+            FIXES_SKIPPED.append(label)
+            return cave_cursor
+
+    cave = bytearray()
+    calls = []                                   # (position of rel32, target VA)
+    def emit(b): cave.extend(b)
+    def emit_call(target):
+        emit(b"\xE8"); calls.append((len(cave), target)); emit(b"\x00\x00\x00\x00")
+
+    emit(bytes([0x8B, 0x03]))                    # MOV EAX,[EBX]            ShipModule*
+    emit(bytes([0x8B, 0x40, 0x08]))              # MOV EAX,[EAX+8]          ShipModuleClass*
+    emit(bytes([0x83, 0x78, 0x78, 0x00]))        # CMP dword [EAX+0x78],0   email length
+    je_pos = len(cave)
+    emit(bytes([0x0F, 0x84, 0, 0, 0, 0]))        # JE skip
+    emit(bytes([0x56]))                          # PUSH ESI
+    emit(bytes([0x89, 0xC6]))                    # MOV ESI,EAX
+    emit(bytes([0x83, 0xEC, 0x18]))              # SUB ESP,0x18             body slot (3rd arg)
+    emit(bytes([0x8B, 0xCC]))                    # MOV ECX,ESP
+    emit(bytes([0x8D, 0x46, 0x68]))              # LEA EAX,[ESI+0x68]
+    emit(bytes([0x50]))                          # PUSH EAX
+    emit_call(COPY_STR_VA)
+    emit(bytes([0x83, 0xEC, 0x18]))              # SUB ESP,0x18             subject slot (2nd arg)
+    emit(bytes([0x8D, 0x46, 0x08]))              # LEA EAX,[ESI+8]          module name
+    emit(bytes([0x83, 0x78, 0x14, 0x10]))        # CMP dword [EAX+0x14],0x10
+    emit(bytes([0x72, 0x02]))                    # JB +2
+    emit(bytes([0x8B, 0x00]))                    # MOV EAX,[EAX]            heap buffer
+    emit(bytes([0x50]))                          # PUSH EAX                 %s argument
+    emit(bytes([0xE8, 0, 0, 0, 0]))              # CALL $+5   pushes the return address ON TOP of the %s arg
+    pop_pos = len(cave)
+    emit(bytes([0x5A]))                          # POP EDX    takes that return address (the %s arg stays on the stack)
+                                                 #            = address of this instruction, the PIC anchor
+    fmt_add_pos = len(cave)
+    emit(bytes([0x81, 0xC2, 0, 0, 0, 0]))        # ADD EDX,<offset to format string>
+    emit(bytes([0x52]))                          # PUSH EDX                 format
+    emit(bytes([0x8D, 0x44, 0x24, 0x08]))        # LEA EAX,[ESP+8]          the subject slot
+    emit(bytes([0x50]))                          # PUSH EAX                 destination
+    emit_call(FORMAT_VA)
+    emit(bytes([0x83, 0xC4, 0x0C]))              # ADD ESP,0xC
+    emit(bytes([0x83, 0xEC, 0x18]))              # SUB ESP,0x18             from slot (1st arg)
+    emit(bytes([0x8B, 0xCC]))                    # MOV ECX,ESP
+    emit(bytes([0x8D, 0x46, 0x38]))              # LEA EAX,[ESI+0x38]       manufacturer
+    emit(bytes([0x50]))                          # PUSH EAX
+    emit_call(COPY_STR_VA)
+    emit_call(GET_EMAIL_MGR_VA)                  # EAX = EmailManager*
+    emit(bytes([0x8B, 0xC8]))                    # MOV ECX,EAX
+    emit_call(ADD_CUSTOM_EMAIL_VA)               # (from, subject, body); callee pops the 3 strings
+    emit(bytes([0x5E]))                          # POP ESI
+    skip_pos = len(cave)
+    emit(bytes([0x8B, 0x03]))                    # MOV EAX,[EBX]            replay displaced instructions
+    emit(bytes([0x83, 0xEC, 0x18]))              # SUB ESP,0x18
+    jmp_pos = len(cave)
+    emit(bytes([0xE9, 0, 0, 0, 0]))              # JMP resume
+    fmt_pos = len(cave)
+    emit(b"Your new %s\x00")
+
+    cave_va = ptch_va + cave_cursor
+    struct.pack_into("<i", cave, je_pos + 2, skip_pos - (je_pos + 6))
+    struct.pack_into("<i", cave, fmt_add_pos + 2, fmt_pos - pop_pos)
+    for pos, target in calls:
+        struct.pack_into("<i", cave, pos, target - (cave_va + pos + 4))
+    struct.pack_into("<i", cave, jmp_pos + 1, RESUME_VA - (cave_va + jmp_pos + 5))
+    data[ptch_off + cave_cursor: ptch_off + cave_cursor + len(cave)] = cave
+
+    neutralize_relocations(data, pe, SITE_VA, len(expected), label)
+    redirect = bytearray([0xE9, 0, 0, 0, 0])
+    struct.pack_into("<i", redirect, 1, cave_va - (SITE_VA + 5))
+    data[off:off + len(expected)] = redirect
+
+    print(f"  [OK] {label}")
+    FIXES_APPLIED.append(label)
+    return cave_cursor + len(cave)
+
+
+# ============================================================
 # Fix 18: clicking the posters in the Ceres Mk III cabin (or the desk PC in
 # the Enceladus cabin, or the Proxima's equivalent) zooms the camera in, but
 # the scroll wheel can't zoom back out. Those are the game's only
@@ -1967,6 +1996,498 @@ def fix_ship_sound_listener(data, pe, ptch_va, ptch_off, cave_cursor):
 # ois_server.exe runs as its own real process. Patched separately from
 # ois.exe's fixes above -- own backup, own .ptch section, own version
 # marker -- since it's a completely different binary.
+
+
+# ============================================================
+# Fix 23: docking at a station (or jumping) in any scenario other than the story
+# campaign overwrites save slot 1.  SaveHandler::saveGame only checks that a
+# game is loaded and that the scenario's mode is "full" (== 2).  Plenty of
+# stand-alone scenarios (Convoy Attack, Survival, Stealth, Escape, Defend, the
+# quickstart, ...) are also mode=full, and their scenariocat is absent, which
+# the loader reads as "single".  The story scenario is the only one whose
+# description says "This game auto-saves whenever you dock/undock or use a
+# jumpgate" (scenariocat=story, ScenarioCategory 1 at Scenario+0x6C).
+# Fix: also require the story category before saving.  Skipping the save also
+# skips the Stats::storeStats call that follows it, so statistics from
+# non-story scenarios are no longer persisted at those moments.
+# ============================================================
+
+def fix_scenario_autosave(data, pe, ptch_va, ptch_off, cave_cursor):
+    label = "Docking in a non-story scenario overwrites save slot 1"
+    SITE_VA = 0x004B8789                       # SaveHandler::saveGame, the scenario-mode guard
+    expected = bytes.fromhex("83787002" "0F85")  # CMP [EAX+0x70],2 / JNE <not saving>
+    off = verify_site(data, pe, SITE_VA, expected, label)
+    if off is None:
+        FIXES_SKIPPED.append(label)
+        return cave_cursor
+    NOT_SAVING = SITE_VA + 10 + struct.unpack_from("<i", data, off + 6)[0]
+    CONTINUE = SITE_VA + 10
+    if verify_site(data, pe, CONTINUE, bytes.fromhex("8D4DD8"), label + " (save path)") is None \
+            or verify_site(data, pe, NOT_SAVING, bytes.fromhex("68F4196100"), label + " (not-saving path)") is None:
+        FIXES_SKIPPED.append(label)
+        return cave_cursor
+    neutralize_relocations(data, pe, SITE_VA, 10, label)
+
+    cave_va = ptch_va + cave_cursor
+    cave = bytearray()
+    cave += bytes.fromhex("83787002")                                   # CMP [EAX+0x70],2     (mode full, as before)
+    cave += b"\x0F\x85" + struct.pack("<i", NOT_SAVING - (cave_va + len(cave) + 6))
+    cave += bytes.fromhex("83786C01")                                   # CMP [EAX+0x6C],1     category == story
+    cave += b"\x0F\x85" + struct.pack("<i", NOT_SAVING - (cave_va + len(cave) + 6))
+    cave += b"\xE9" + struct.pack("<i", CONTINUE - (cave_va + len(cave) + 5))
+    data[ptch_off + cave_cursor: ptch_off + cave_cursor + len(cave)] = cave
+    cave_cursor += len(cave)
+
+    data[off:off + 10] = b"\xE9" + struct.pack("<i", cave_va - (SITE_VA + 5)) + b"\x90" * 5
+    print(f"  [OK] {label}")
+    FIXES_APPLIED.append(label)
+    return cave_cursor
+
+
+# ============================================================
+# Fix 24: the power screen's "Drain (Normal)" figure disagrees with the sum of the
+# modules' own drain figures (theoretical 1.65 vs actual 2.42).  Two causes:
+#   1. SystemManager::totalPowerDrain adds up the modules' base drain without
+#      the component power modifier (ComponentInterfaceInstance::getPowerModifier)
+#      that ShipModule::getCurrentPowerDrain applies and the module screens show.
+#   2. ShipModule::drainPower, what is really taken from the batteries, also
+#      ignores that modifier, so the screens and the batteries disagree.
+# Fix: totalPowerDrain now sums getCurrentPowerDrain over the module vector, and
+# drainPower multiplies the amount it draws by (1 + modifier) before drawPower.
+# ois.exe and ois_server.exe both carry the code (different addresses).
+# ============================================================
+
+def fix_power_drain_modifier(data, pe, ptch_va, ptch_off, cave_cursor, server=False):
+    label = "Power drain: component power modifiers ignored, active modules counted twice" + (" (server)" if server else "")
+    applied, skipped = _fix_lists(server)
+
+    if server:
+        TOTAL, CURRENT, DRAIN, MODIFIER, DRAW = 0x00522BE0, 0x004AE1B0, 0x004AE120, 0x00438020, 0x00521A50
+    else:
+        TOTAL, CURRENT, DRAIN, MODIFIER, DRAW = 0x005246B0, 0x004AE2F0, 0x004AE260, 0x00438200, 0x00523520
+    # SystemManager::totalPowerDrain, ShipModule::getCurrentPowerDrain, ShipModule::drainPower,
+    # ComponentInterfaceInstance::getPowerModifier, SystemManager::drawPower
+    for va, head, what in ((TOTAL, "568B714033C0578B793C0F57C92BF7C1FE0285F6", "totalPowerDrain"),
+                           (CURRENT, "558BEC83EC08807963007507", "getCurrentPowerDrain"),
+                           (DRAIN, "558BEC83E4F851568BF1807E6300", "drainPower"),
+                           (MODIFIER, "558BEC83EC0C8B11", "getPowerModifier")):
+        if verify_site(data, pe, va, bytes.fromhex(head), f"{label} ({what})") is None:
+            return bail(label, cave_cursor, server)
+    CALLS = (DRAIN + 0x4A, DRAIN + 0x72)                       # the two `CALL drawPower` in drainPower
+    for va in CALLS:
+        if verify_site(data, pe, va, b"\xE8", f"{label} (draw call)") is None or _rel32_target(data, pe, va, 1) != DRAW:
+            print(f"  [SKIP] {label}: drainPower does not call drawPower where expected")
+            return bail(label, cave_cursor, server)
+    for site, length in ((TOTAL, 5), (CALLS[0], 5), (CALLS[1], 5)):
+        neutralize_relocations(data, pe, site, length, label)
+
+    cave_va = ptch_va + cave_cursor
+    # ---- totalPowerDrain: the sum of every module's own current drain (ShipModule::getCurrentPowerDrain:
+    #      nothing if switched off, the idle drain if idle, the active drain x setting if active, all
+    #      times 1 + the component power modifier) -- exactly the figures the module screens and the
+    #      terminal's POWER DRAIN list show.
+    t = bytearray(bytes.fromhex("56" "57" "53"                       # PUSH ESI / EDI / EBX
+                                "8B793C" "8B7140" "2BF7" "C1FE02"   # EDI = first module, ESI = count
+                                "83EC04" "0F57C0" "F30F110424"       # [ESP] = 0.0 (running total)
+                                "33DB"))                             # EBX = 0
+    loop = len(t)
+    t += bytes.fromhex("3BDE") + b"\x73\x00"                         # CMP EBX,ESI / JAE done
+    jae = len(t) - 1
+    t += bytes.fromhex("8B0C9F")                                     # MOV ECX,[EDI+EBX*4]
+    t += b"\xE8" + _rel32(cave_va, len(t), CURRENT, 1)                  # CALL getCurrentPowerDrain
+    t += bytes.fromhex("F30F580424" "F30F110424" "43")                # total += XMM0 / INC EBX
+    t += b"\xEB" + bytes([(loop - (len(t) + 2)) & 0xFF])             # JMP loop
+    t[jae] = len(t) - (jae + 1)
+    t += bytes.fromhex("F30F100424" "83C404" "5B" "5F" "5E" "C3")    # XMM0 = total / POP / RET
+    total_va = cave_va
+    cave_va += len(t)
+    # ---- drainPower: what is actually taken from the batteries also gets the (1 + modifier)
+    d = bytes.fromhex("83EC08" "F30F110C24" "51"                      # save the amount (XMM1) and ECX
+                      "8B4E0C")                                      # ECX = this->components
+    d += b"\xE8" + _rel32(cave_va, len(d), MODIFIER, 1)                 # CALL getPowerModifier
+    d += bytes.fromhex("59" "B8" "0000803F" "660F6ED0" "F30F58C2"     # POP ECX / XMM0 = 1 + modifier
+                       "F30F100C24" "F30F59C8" "83C408")             # XMM1 = amount * (1 + modifier)
+    d += b"\xE9" + _rel32(cave_va, len(d), DRAW, 1)                     # JMP drawPower
+    draw_va = cave_va
+    body = bytes(t + d)
+    data[ptch_off + cave_cursor: ptch_off + cave_cursor + len(body)] = body
+    cave_cursor += len(body)
+
+    off = va_to_offset(pe, TOTAL)
+    data[off:off + 5] = b"\xE9" + struct.pack("<i", total_va - (TOTAL + 5))
+    for va in CALLS:
+        off = va_to_offset(pe, va)
+        data[off:off + 5] = b"\xE8" + struct.pack("<i", draw_va - (va + 5))
+    print(f"  [OK] {label}")
+    applied.append(label)
+    return cave_cursor
+
+
+# ============================================================
+# Fix 25: point-defence laser vs torpedoes.  The game's own Infopedia says: "Point Defence
+# Lasers ... rapidly shoot laser blasts at nearby torpedoes when they are close enough
+# to your ship".  The decompiled code (ShipModule::runLogic, the PDS branch, and
+# GameData::getShipWithinDistance) shows why that never happened:
+#   1. It "hits" by calling Ship::damage(...).  Ship::damage returns immediately for
+#      vessel type 4 (torpedoes/probes/mines), so a locked torpedo is never harmed.
+#   2. It takes the FIRST candidate in the sector list, so a torpedo behind any ship with
+#      its IFF off is never reached.  Candidates are ships with the IFF off, or any weapon
+#      -- including the PDS owner's own torpedoes, which would now be shot down.
+# What this does: look for weapons first, never the owner's own and never one already
+# destroyed; a locked weapon is destroyed (no blast); ships are chosen by the unchanged
+# stock rule (IFF off), and the module's own hit roll still applies.
+# Caves generated by tools/pds/asm_pds.py; every external target is a rel32.
+# ============================================================
+
+FILTER_CAVE = bytes.fromhex(
+    "84db0f84a76ddaff8b815402000085c0742a83b85801000004752180b9cc0300"
+    "00000f850f6edaff8b819c0300003b450c0f84006edaffe9736ddaff80fb020f"
+    "84f26ddaff8b4140807834000f845d6ddaffe9e06ddaff"
+)
+FILTER_FIXUPS = [(0x4, "PASS"), (0x24, "SKIP"), (0x33, "SKIP"), (0x38, "PASS"), (0x41, "SKIP"), (0x4e, "PASS"), (0x53, "SKIP")]
+
+SELECT_CAVE = bytes.fromhex(
+    "83ec04f30f111424ff742418ff7424186a02ff742418ff742418f30f10542414"
+    "e8eb6cdaff85c0751dff742418ff7424186a01ff742418ff742418f30f105424"
+    "14e8ca6cdaff83c404c21400"
+)
+SELECT_FIXUPS = [(0x21, "GSWD"), (0x42, "GSWD")]
+
+DAMAGE_CAVE = bytes.fromhex(
+    "89f98b815402000085c0741383b85801000004750ac681cc03000001c210008b"
+    "01ff600c"
+)
+DAMAGE_FIXUPS = []
+
+
+
+def fix_pds_torpedoes(data, pe, ptch_va, ptch_off, cave_cursor, server=False):
+    label = "Point-defence laser can never destroy a torpedo" + (" (server)" if server else "")
+    applied, skipped = _fix_lists(server)
+
+    # Everything is located relative to `call getShipWithinDistance` in the PDS branch.
+    SELECT = 0x004AF602 if server else 0x004AF752
+    if verify_site(data, pe, SELECT - 0x2B, bytes.fromhex("6A0156FF7620"), label + " (call arguments)") is None:
+        return bail(label, cave_cursor, server)
+    if verify_site(data, pe, SELECT, bytes([0xE8]), label + " (select call)") is None:
+        return bail(label, cave_cursor, server)
+    GSWD = _rel32_target(data, pe, SELECT, 1)
+    if verify_site(data, pe, GSWD, bytes.fromhex("558BEC6AFF68"), label + " (getShipWithinDistance)") is None:
+        return bail(label, cave_cursor, server)
+    FILTER_SITE = GSWD + 0x7F
+    FILTER_ORIGINAL = bytes.fromhex("84DB741C8B41408078340074138B815402000083B858010000040F8588000000")
+    if verify_site(data, pe, FILTER_SITE, FILTER_ORIGINAL, label + " (candidate filter)") is None:
+        return bail(label, cave_cursor, server)
+    PASS, SKIP = GSWD + 0x9F, GSWD + 0x127
+    if (verify_site(data, pe, PASS, bytes.fromhex("F20F104928"), label + " (filter pass)") is None
+            or verify_site(data, pe, SKIP, bytes.fromhex("8B86D0000000"), label + " (filter skip)") is None):
+        return bail(label, cave_cursor, server)
+    DAMAGE_SITE = SELECT + 0x16D
+    if verify_site(data, pe, DAMAGE_SITE, bytes.fromhex("8BCF50FF520C"), label + " (damage call)") is None:
+        return bail(label, cave_cursor, server)
+
+    symbols = {"GSWD": GSWD, "PASS": PASS, "SKIP": SKIP}
+    for site, length in ((FILTER_SITE, 32), (SELECT, 5), (DAMAGE_SITE, 6)):
+        neutralize_relocations(data, pe, site, length, label)
+
+    def place(cave, fixups):
+        nonlocal cave_cursor
+        va = ptch_va + cave_cursor
+        body = bytearray(cave)
+        for pos, name in fixups:
+            struct.pack_into("<i", body, pos, symbols[name] - (va + pos + 4))
+        data[ptch_off + cave_cursor: ptch_off + cave_cursor + len(body)] = body
+        cave_cursor += len(body)
+        return va
+
+    def write(va, payload):
+        off = va_to_offset(pe, va)
+        data[off:off + len(payload)] = payload
+
+    filter_va = place(FILTER_CAVE, FILTER_FIXUPS)
+    select_va = place(SELECT_CAVE, SELECT_FIXUPS)
+    damage_va = place(DAMAGE_CAVE, DAMAGE_FIXUPS)
+    write(FILTER_SITE, b"\xE9" + struct.pack("<i", filter_va - (FILTER_SITE + 5)) + b"\x90" * 27)
+    write(SELECT, b"\xE8" + struct.pack("<i", select_va - (SELECT + 5)))
+    write(DAMAGE_SITE, b"\x50\xE8" + struct.pack("<i", damage_va - (DAMAGE_SITE + 6)))
+    print(f"  [OK] {label}")
+    applied.append(label)
+    return cave_cursor
+
+
+# ============================================================
+# Fix 26: the ship terminal labels power in "mw" while the power screen and the power
+# bar use kW (same numbers).  Also the terminal's STATUS command prints the
+# ship's power *generation* on its "Current Power Drain" line: it calls
+# SystemManager::totalPowerGeneration-like code at 0x524720 right after computing
+# totalPowerDrain (0x5246B0) and discarding it; the ship-text version of the line
+# (0x4F087D) calls totalPowerDrain.  Fix: the ten format strings say "kw", and
+# the STATUS call goes to totalPowerDrain.
+# ============================================================
+
+def fix_terminal_power_units(data, pe):
+    label = "Ship terminal power units (mw instead of kw) and STATUS drain line"
+    FORMATS = [b"  `%%PWR Gen`2: %.2fmw/%.2fmw\n", b"  `$PWR Store`2: %.2fmw/%.2fmw\n",
+               b"  `^PWR Drain`2: `@-%.2fmw\n", b"Current Power Drain: `@-%.2fmw",
+               b"Current Power Generation: `$%.2fmw`2/`$%.2fmw", b"Current Power Storage: `!%.2fmw`2/`!%.2fmw",
+               b"`%%%s`2: storing `$%.2fmw`2/`$%.2fmw", b"`2Total power: `$%.2fmw`2/`$%.2fmw (%d%%)",
+               b"`%%%s`2: generating `$%.2fmw", b"`%%%s`2: draining `@%.2fmw"]
+    done = 0
+    for text in FORMATS:
+        needle = b"\x00" + text + b"\x00"
+        at = data.find(needle)
+        if at < 0 or data.find(needle, at + 1) >= 0:
+            print(f"  [SKIP] {label}: format string {text[:30]!r} not found exactly once")
+            FIXES_SKIPPED.append(label)
+            return
+        data[at + 1: at + 1 + len(text)] = text.replace(b"mw", b"kw")
+        done += 1
+    CALL = 0x0054B361
+    if verify_site(data, pe, CALL - 7, bytes.fromhex("8BCEF20F110424E8"), label + " (status drain call)") is None:
+        FIXES_SKIPPED.append(label)
+        return
+    if _rel32_target(data, pe, CALL, 1) != 0x00524720:
+        print(f"  [SKIP] {label}: unexpected call target")
+        FIXES_SKIPPED.append(label)
+        return
+    neutralize_relocations(data, pe, CALL, 5, label)
+    off = va_to_offset(pe, CALL)
+    data[off:off + 5] = b"\xE8" + struct.pack("<i", 0x005246B0 - (CALL + 5))
+    print(f"  [OK] {label}")
+    FIXES_APPLIED.append(label)
+
+
+# ============================================================
+# Fix 27: in a forced/intercom conversation (Asterin Allas) Enter does nothing until an
+# arrow key is pressed.  PrivateCommsManager::runLogic starts such a conversation
+# with `selected option = 0` even when option 0 is hidden by its requirements
+# (her two "Ok?" options); every other start (switchTo, after choosing an option)
+# uses firstValidConversationOption().  Fix: do the same here.
+# ============================================================
+
+def fix_forced_conversation_first_option(data, pe, ptch_va, ptch_off, cave_cursor):
+    label = "Intercom/forced conversation: Enter does nothing until you press an arrow key"
+    SITE, FIRST_VALID, CONTINUE = 0x00431B40, 0x00430EB0, 0x00431B4A
+    if verify_site(data, pe, SITE, bytes.fromhex("C7839400000000000000C7430800000000"), label) is None \
+            or verify_site(data, pe, FIRST_VALID, bytes.fromhex("8B818C00000033D256578BB8A0000000"),
+                           label + " (firstValidConversationOption)") is None:
+        FIXES_SKIPPED.append(label)
+        return cave_cursor
+    neutralize_relocations(data, pe, SITE, 10, label)
+    cave_va = ptch_va + cave_cursor
+    cave = bytearray(bytes.fromhex("51" "52" "8BCB"))                         # PUSH ECX / EDX ; ECX = this
+    cave += b"\xE8" + struct.pack("<i", FIRST_VALID - (cave_va + len(cave) + 5))
+    cave += bytes.fromhex("898394000000" "5A" "59")                           # [this+0x94] = EAX ; POP EDX / ECX
+    cave += b"\xE9" + struct.pack("<i", CONTINUE - (cave_va + len(cave) + 5))
+    data[ptch_off + cave_cursor: ptch_off + cave_cursor + len(cave)] = cave
+    cave_cursor += len(cave)
+    off = va_to_offset(pe, SITE)
+    data[off:off + 10] = b"\xE9" + struct.pack("<i", cave_va - (SITE + 5)) + b"\x90" * 5
+    print(f"  [OK] {label}")
+    FIXES_APPLIED.append(label)
+    return cave_cursor
+
+
+# ============================================================
+# Fix 28: News list: pressing Enter with nothing selected prints "Invalid article number:
+# <garbage>".  ComputerSystem::selectedArticle(slot) indexes its slot->article
+# table with no range check (selectedEmail at least handles -1).  With slot -1
+# it read the heap word in front of the table and reported it as the article
+# number.  Fix: an index outside the table (unsigned compare, so -1 too) makes
+# the function return without a result.
+# ============================================================
+
+def fix_news_enter_without_selection(data, pe, ptch_va, ptch_off, cave_cursor):
+    label = "News list: Enter with nothing selected prints 'Invalid article number: <garbage>'"
+    SITE, BACK = 0x004B5877, 0x004B587C
+    if verify_site(data, pe, SITE - 3, bytes.fromhex("8B550889118B4134FF3490A104D76500"), label) is None:
+        FIXES_SKIPPED.append(label)
+        return cave_cursor
+    neutralize_relocations(data, pe, SITE, 5, label)
+    cave_va = ptch_va + cave_cursor
+    cave = bytearray(bytes.fromhex("8B4138" "2B4134" "C1F802" "3BD0"))      # EAX = table length ; CMP EDX,EAX
+    cave += b"\x73\x00"                                                   # JAE out_of_range (unsigned: also -1)
+    jae = len(cave) - 1
+    cave += bytes.fromhex("8911" "8B4134")                                  # the two instructions we displaced
+    cave += b"\xE9" + struct.pack("<i", BACK - (cave_va + len(cave) + 5))
+    cave[jae] = len(cave) - (jae + 1)
+    cave += bytes.fromhex("59" "5D" "C20400")                               # POP ECX / POP EBP / RET 4
+    data[ptch_off + cave_cursor: ptch_off + cave_cursor + len(cave)] = cave
+    cave_cursor += len(cave)
+    off = va_to_offset(pe, SITE)
+    data[off:off + 5] = b"\xE9" + struct.pack("<i", cave_va - (SITE + 5))
+    print(f"  [OK] {label}")
+    FIXES_APPLIED.append(label)
+    return cave_cursor
+
+
+# ============================================================
+# Fix 29: point-defence panel: a long manufacturer + name wraps onto a second line and
+# pushes everything below it into the ENABLE/DISABLE button.  ShipTextData formats
+# the first line of the PDS info as "`!%s `%%%s\n" (manufacturer, name) and the
+# panel is about 16 characters wide ("Pritchard PSL 10X" does not fit).  Fix: when
+# the two together are longer than 15 characters print the name alone (the
+# Infopedia and the shop still show the full manufacturer + name).
+# ============================================================
+
+def fix_pds_panel_name_overflow(data, pe, ptch_va, ptch_off, cave_cursor):
+    label = "Point-defence panel: long manufacturer + name wraps and overlaps the buttons"
+    SITE, AFTER_CALL, FORMAT_CALL = 0x004F630B, 0x004F631E, 0x00593B30
+    if verify_site(data, pe, SITE, bytes.fromhex("51508D45C068"), label) is None \
+            or verify_site(data, pe, SITE + 0x0A, bytes.fromhex("50E8"), label + " (format call)") is None \
+            or _rel32_target(data, pe, SITE + 0x0B, 1) != FORMAT_CALL \
+            or verify_site(data, pe, AFTER_CALL, bytes.fromhex("C645FC01"), label + " (after call)") is None:
+        FIXES_SKIPPED.append(label)
+        return cave_cursor
+    neutralize_relocations(data, pe, SITE, 5, label)
+    cave_va = ptch_va + cave_cursor
+    c = bytearray()
+
+    c += bytes.fromhex("56" "57" "33D2" "8BF0")                      # PUSH ESI/EDI ; EDX = 0 ; ESI = manufacturer
+    c += bytes.fromhex("803E00" "7404" "46" "42" "EBF7")              # count its characters in EDX
+    c += bytes.fromhex("8BF1")                                       # ESI = name
+    c += bytes.fromhex("803E00" "7404" "46" "42" "EBF7")              # ... and its characters
+    c += bytes.fromhex("5F" "5E")                                    # POP EDI/ESI
+    c += bytes.fromhex("83FA0F")                                     # CMP EDX,15   (+1 space + newline > 16 columns)
+    ja = len(c) + 1; c += b"\x77\x00"                                # JA long
+    c += bytes.fromhex("51" "50" "8D45C0")                           # original: PUSH ECX / PUSH EAX / LEA EAX,[EBP-0x40]
+    c += b"\xE9" + _rel32(cave_va, len(c), SITE + 5, 1)                                  # JMP back (the original PUSH <format> follows)
+    c[ja] = len(c) - (ja + 1)
+    c += bytes.fromhex("51" "8D45C0")                                # PUSH name ; LEA EAX,[EBP-0x40]
+    c += bytes.fromhex("E800000000" "5A")                            # CALL $+5 ; POP EDX  (position independent)
+    fix_pos = len(c) + 2
+    c += bytes.fromhex("81C2") + b"\0\0\0\0"                         # ADD EDX,<offset of the format below>
+    here = len(c)
+    c += bytes.fromhex("52" "50")                                    # PUSH format ; PUSH destination
+    c += b"\xE8" + _rel32(cave_va, len(c), FORMAT_CALL, 1)                               # CALL strUsingArgs
+    c += bytes.fromhex("83C40C")                                     # ADD ESP,12 (cdecl)
+    c += b"\xE9" + _rel32(cave_va, len(c), AFTER_CALL, 1)                                # JMP after the original ADD ESP,16
+    fmt_at = len(c)
+    c += b"`%%%s\n\x00"
+    struct.pack_into("<i", c, fix_pos, fmt_at - (fix_pos - 3))   # EDX = address of the POP
+    data[ptch_off + cave_cursor: ptch_off + cave_cursor + len(c)] = c
+    cave_cursor += len(c)
+    off = va_to_offset(pe, SITE)
+    data[off:off + 5] = b"\xE9" + struct.pack("<i", cave_va - (SITE + 5))
+    print(f"  [OK] {label}")
+    FIXES_APPLIED.append(label)
+    return cave_cursor
+
+
+AUTOPILOT_CAVE = bytes.fromhex(
+    "f30f104df08b030f5a4008f20f106f28660f166f30660f5cc50f5ab718010000"
+    "660f59c6660f28f0660f15f6f20f58c6660f57f6660f2fc6721fb80000344366"
+    "0f6ef0f30f58ceb80000b443660f6ef00f2fce7204f30f5cce"
+)                                                   # assembled by tools/autopilot/asm_ap.py
+
+
+# ============================================================
+# Fix 30: autopilot: after overshooting its destination the ship burns away from it.
+# The final-waypoint "decelerate" state (travel state 4) brakes by facing
+# (angle to the waypoint + 180) and burning while the stopping distance is >= the
+# distance left.  That is only a retro burn while the ship still heads for the
+# waypoint.  Once it has flown past it (a fast engine does, e.g. the GX Delta at
+# 100%) the angle flips, the same heading points along the velocity and the burn
+# accelerates the ship away, draining the batteries.  Fix: use the dot product of
+# the velocity with the vector to the waypoint; if the ship is moving away it
+# faces the waypoint (a real retro burn), otherwise the heading is the stock one.
+# The cave is generated by tools/autopilot/asm_ap.py.
+# ============================================================
+
+def fix_autopilot_overshoot(data, pe, ptch_va, ptch_off, cave_cursor, server=False):
+    label = "Autopilot: after overshooting its destination the ship burns away from it" + (" (server)" if server else "")
+    applied, skipped = _fix_lists(server)
+    SITE = 0x00516E2F if server else 0x0051791F
+    BACK = SITE + 0x1E
+    expected_a = bytes.fromhex("F30F104DF0F30F580D")
+    if verify_site(data, pe, SITE, expected_a, label) is None \
+            or verify_site(data, pe, SITE + 0x0D, bytes.fromhex("F30F1005"), label + " (360.0)") is None \
+            or verify_site(data, pe, SITE + 0x15, bytes.fromhex("0F2FC87204F30F5CC8A1"), label + " (after)") is None:
+        skipped.append(label)
+        return cave_cursor
+    neutralize_relocations(data, pe, SITE, 0x1E, label)
+    cave_va = ptch_va + cave_cursor
+    body = bytearray(AUTOPILOT_CAVE)
+    body += b"\xE9" + struct.pack("<i", BACK - (cave_va + len(body) + 5))
+    data[ptch_off + cave_cursor: ptch_off + cave_cursor + len(body)] = body
+    cave_cursor += len(body)
+    off = va_to_offset(pe, SITE)
+    data[off:off + 0x1E] = b"\xE9" + struct.pack("<i", cave_va - (SITE + 5)) + b"\x90" * (0x1E - 5)
+    print(f"  [OK] {label}")
+    applied.append(label)
+    return cave_cursor
+
+
+# ============================================================
+# Fix 31: nav map: the "Dist." line of the selected sector is blue within jump range and
+# red outside it, but compared the distance with the drive class's base range
+# ([class+0x104]).  The real range (ShipModule::getCurrentJumpRange, used by the
+# Set Dest. button and the jump itself) is that range times the drive's
+# efficiency, so a drive above 100% showed sectors it can reach as out of range.
+# Fix: compare with getCurrentJumpRange.
+# ============================================================
+
+def fix_nav_jump_range_efficiency(data, pe, ptch_va, ptch_off, cave_cursor):
+    label = "Nav map: sector distance ignores a jump drive above 100% efficiency"
+    SITE, OK, TOO_FAR, GET_RANGE = 0x00583012, 0x00583023, 0x00583021, 0x004AE800
+    if verify_site(data, pe, SITE, bytes.fromhex("8B40148B40080F2F9804010000" "7602" "32DB"), label) is None \
+            or verify_site(data, pe, GET_RANGE, bytes.fromhex("568BF18B46048B4814"), label + " (getCurrentJumpRange)") is None:
+        FIXES_SKIPPED.append(label)
+        return cave_cursor
+    neutralize_relocations(data, pe, SITE, 15, label)
+    cave_va = ptch_va + cave_cursor
+    c = bytearray(bytes.fromhex("8B4814"))                       # ECX = jump module ([SystemManager+0x14])
+    c += bytes.fromhex("83EC04" "F30F111C24")                    # keep XMM3 (the distance) across the call
+    c += b"\xE8" + struct.pack("<i", GET_RANGE - (cave_va + len(c) + 5))
+    c += bytes.fromhex("F30F101C24" "83C404")                    # restore XMM3
+    c += bytes.fromhex("0F2FD8")                                 # COMISS XMM3,XMM0   (distance vs real range)
+    c += b"\x0F\x86" + struct.pack("<i", OK - (cave_va + len(c) + 6))        # JBE in range
+    c += b"\xE9" + struct.pack("<i", TOO_FAR - (cave_va + len(c) + 5))        # out of range
+    data[ptch_off + cave_cursor: ptch_off + cave_cursor + len(c)] = c
+    cave_cursor += len(c)
+    off = va_to_offset(pe, SITE)
+    data[off:off + 13] = b"\xE9" + struct.pack("<i", cave_va - (SITE + 5)) + b"\x90" * 8
+    print(f"  [OK] {label}")
+    FIXES_APPLIED.append(label)
+    return cave_cursor
+
+
+# ============================================================
+# Fix 32: autopilot keeps burning the main drive at top speed.  In the "accelerate to the
+# final waypoint" state the drive is switched off once `maxspeed <= speed`, but
+# Ship::accelerate caps the speed by rescaling the velocity vector to exactly
+# maxspeed, and the rescaled vector's length can be a hair under it (1.2999999
+# for 1.3).  The test then fails about every other tick, the drive keeps burning
+# at the cap (a GX Delta at 100% draws 14 kW/s) and the batteries run out, so the
+# ship cannot brake for its destination.  The other autopilot state that makes
+# this test (intermediate waypoints) already allows 1e-5; this one now does too.
+# ============================================================
+
+def fix_autopilot_cruise_burn(data, pe, ptch_va, ptch_off, cave_cursor, server=False):
+    label = "Autopilot keeps burning the main drive at top speed" + (" (server)" if server else "")
+    applied, skipped = _fix_lists(server)
+    SITE = 0x00516D50 if server else 0x00517840
+    OFF, ON = SITE + 0x1B, SITE + 0x0E
+    if verify_site(data, pe, SITE, bytes.fromhex("F30F1080080100000F2F45EC760D8B4F40E8"), label) is None \
+            or verify_site(data, pe, OFF, bytes.fromhex("8B47408B401080786200"), label + " (drive off)") is None:
+        skipped.append(label)
+        return cave_cursor
+    neutralize_relocations(data, pe, SITE, 14, label)
+    cave_va = ptch_va + cave_cursor
+    c = bytearray(bytes.fromhex("F30F108008010000"))            # MOVSS XMM0,[EAX+0x108]   top speed
+    c += bytes.fromhex("BAACC52737" "660F6ECA" "F30F5CC1")        # EDX = 1e-5f ; XMM1 = EDX ; XMM0 -= XMM1
+    c += bytes.fromhex("0F2F45EC")                              # COMISS XMM0,[EBP-0x14]   current speed
+    c += b"\x0F\x86" + struct.pack("<i", OFF - (cave_va + len(c) + 6))      # JBE: at top speed -> drive off
+    c += b"\xE9" + struct.pack("<i", ON - (cave_va + len(c) + 5))            # otherwise as before
+    data[ptch_off + cave_cursor: ptch_off + cave_cursor + len(c)] = c
+    cave_cursor += len(c)
+    off = va_to_offset(pe, SITE)
+    data[off:off + 14] = b"\xE9" + struct.pack("<i", cave_va - (SITE + 5)) + b"\x90" * 9
+    print(f"  [OK] {label}")
+    applied.append(label)
+    return cave_cursor
+
+
 # ============================================================
 
 def fix_pirate_hunt_server(data, pe, ptch_va, ptch_off, cave_cursor):
@@ -2094,6 +2615,10 @@ def patch_server_exe(exe_path):
     cave_cursor = VERSION_MARKER_SIZE
     cave_cursor = fix_pirate_hunt_server(data, pe, ptch_va, ptch_off, cave_cursor)
     fix_pirate_hunt_format_string_server(data, pe)
+    cave_cursor = fix_power_drain_modifier(data, pe, ptch_va, ptch_off, cave_cursor, server=True)
+    cave_cursor = fix_pds_torpedoes(data, pe, ptch_va, ptch_off, cave_cursor, server=True)
+    cave_cursor = fix_autopilot_overshoot(data, pe, ptch_va, ptch_off, cave_cursor, server=True)
+    cave_cursor = fix_autopilot_cruise_burn(data, pe, ptch_va, ptch_off, cave_cursor, server=True)
     pe.close()
 
     if cave_cursor > ptch_size:
@@ -2480,6 +3005,12 @@ def resolve_game_dir(explicit=None):
 PATCHABLE_EXES = ("ois.exe", "ois_server.exe")
 MOD_DIR_RELATIVE = ("ObjectsInSpace", "mods", "oisbugfix")
 BACKUP_SUFFIX = ".original-backup"
+# news_*/info_* corrections cannot go through the mod system (the game only reads
+# them from assets/), so they are applied in place; the untouched originals live
+# here, outside assets/ (see apply_data_fixes.apply_inplace).
+# Defined once, in apply_data_fixes.py.  Without that file (the mod is skipped too) there is nothing to restore.
+ORIGINALS_DIRNAME = apply_data_fixes.ORIGINALS_DIRNAME if apply_data_fixes else ""
+INPLACE_PREFIXES = apply_data_fixes.INPLACE_PREFIXES if apply_data_fixes else ()
 
 # state values from inspect_exe()
 STATE_MISSING = "missing"        # file isn't there
@@ -2640,6 +3171,40 @@ def remove_mod(game_dir):
     return True
 
 
+def saved_originals(game_dir):
+    """The news_/info_ originals this tool saved before correcting them in place."""
+    d = Path(game_dir) / ORIGINALS_DIRNAME
+    if not d.is_dir():
+        return []
+    return sorted(p for p in d.glob("*.txt") if p.name.startswith(INPLACE_PREFIXES))
+
+
+def restore_news_info(game_dir, keep_backup=False):
+    """Copies the saved news_/info_ originals back into assets/. Returns True on success."""
+    game_dir = Path(game_dir)
+    assets = game_dir / "assets"
+    originals = saved_originals(game_dir)
+    if not originals:
+        print("  [SKIP] news/info articles: no saved originals")
+        return True
+    restored = 0
+    for saved in originals:
+        try:
+            (assets / saved.name).write_bytes(saved.read_bytes())
+            restored += 1
+        except OSError as e:
+            print(f"  [ERROR] could not restore {saved.name}: {e}", file=sys.stderr)
+            return False
+    print(f"  [OK] restored {restored} news/info article(s) to their original text")
+    if not keep_backup:
+        try:
+            shutil.rmtree(game_dir / ORIGINALS_DIRNAME)
+            print(f"       removed {ORIGINALS_DIRNAME}/")
+        except OSError as e:
+            print(f"       [WARN] could not remove {ORIGINALS_DIRNAME}/: {e}")
+    return True
+
+
 def print_status(game_dir):
     game_dir = Path(game_dir)
     print(f"Install: {game_dir}")
@@ -2658,6 +3223,8 @@ def print_status(game_dir):
             print(f"  {'':<16} -> run this script with no arguments to update it to v{PATCHER_VERSION}")
     mod_dir = game_dir.joinpath(*MOD_DIR_RELATIVE)
     print(f"  {'bugfix mod':<16} {'installed at ' + str(mod_dir) if mod_dir.is_dir() else 'not installed'}")
+    n = len(saved_originals(game_dir))
+    print(f"  {'news/info text':<16} {f'{n} article(s) corrected in place; originals in {ORIGINALS_DIRNAME}/' if n else 'not modified'}")
 
 
 def confirm(question, assume_yes):
@@ -2702,8 +3269,11 @@ def uninstall(game_dir, assume_yes=False, keep_backups=False, extra_exes=()):
 
     mod_present = mod_dir.is_dir()
     print(f"  {'bugfix mod':<16} {'installed' if mod_present else 'not installed'}")
+    news_saved = saved_originals(game_dir)
+    print(f"  {'news/info text':<16} "
+          f"{str(len(news_saved)) + ' corrected article(s), originals saved' if news_saved else 'not modified'}")
 
-    if not restorable and not mod_present:
+    if not restorable and not mod_present and not news_saved:
         print("\nNothing installed by this script was found -- nothing to undo.")
         return True
 
@@ -2713,6 +3283,9 @@ def uninstall(game_dir, assume_yes=False, keep_backups=False, extra_exes=()):
               f"{'' if keep_backups else ', then delete that backup'}")
     if mod_present:
         print(f"  - delete {mod_dir}")
+    if news_saved:
+        print(f"  - restore {len(news_saved)} news/info article(s) in assets/ from {ORIGINALS_DIRNAME}/"
+              f"{'' if keep_backups else ', then delete that folder'}")
     print("  - leave save games, settings and every other game file untouched")
 
     if not confirm("\nProceed?", assume_yes):
@@ -2728,6 +3301,8 @@ def uninstall(game_dir, assume_yes=False, keep_backups=False, extra_exes=()):
         ok = restore_exe(exe_path, keep_backup=keep_backups) and ok
     if mod_present:
         remove_mod(game_dir)
+    if news_saved:
+        ok = restore_news_info(game_dir, keep_backup=keep_backups) and ok
 
     print("\n" + "=" * 60)
     if ok:
@@ -3144,6 +3719,17 @@ def main():
     fix_movecamera_null_ship(data, pe)
     fix_stationary_while_docking(data, pe)
     cave_cursor = fix_ship_sound_listener(data, pe, ptch_va, ptch_off, cave_cursor)
+    cave_cursor = fix_module_purchase_email(data, pe, ptch_va, ptch_off, cave_cursor)
+    cave_cursor = fix_scenario_autosave(data, pe, ptch_va, ptch_off, cave_cursor)
+    cave_cursor = fix_power_drain_modifier(data, pe, ptch_va, ptch_off, cave_cursor)
+    cave_cursor = fix_pds_torpedoes(data, pe, ptch_va, ptch_off, cave_cursor)
+    fix_terminal_power_units(data, pe)
+    cave_cursor = fix_forced_conversation_first_option(data, pe, ptch_va, ptch_off, cave_cursor)
+    cave_cursor = fix_news_enter_without_selection(data, pe, ptch_va, ptch_off, cave_cursor)
+    cave_cursor = fix_pds_panel_name_overflow(data, pe, ptch_va, ptch_off, cave_cursor)
+    cave_cursor = fix_autopilot_overshoot(data, pe, ptch_va, ptch_off, cave_cursor)
+    cave_cursor = fix_autopilot_cruise_burn(data, pe, ptch_va, ptch_off, cave_cursor)
+    cave_cursor = fix_nav_jump_range_efficiency(data, pe, ptch_va, ptch_off, cave_cursor)
     pe.close()
 
     if cave_cursor > ptch_size:

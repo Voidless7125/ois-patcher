@@ -13,7 +13,8 @@ guessed at), and writes only the corrected result into the game's own
 mod-loader folder. The copyrighted game content itself never leaves
 the user's machine or appears in this repository.
 
-FIXES maps each affected asset filename to a list of
+FIXES (plus the generated spelling/grammar table in text_fixes.py, merged in below)
+maps each affected asset filename to a list of
 (expected_occurrence_count, old_line, new_line) tuples. A count other
 than 1 means the same line legitimately repeats verbatim elsewhere in
 the file (e.g. several near-identical character entries) -- every
@@ -327,8 +328,210 @@ FIXES = {
         (1,
          "    button=128,170,80,`!Undock,UNDOCK,CAN_UNDOCK\n",
          "    button=158,170,80,`!Undock,UNDOCK,CAN_UNDOCK\n"),
+        # The Helm Control and Orbital tabs of this console carry `linkto=helm`, which is what shows the
+        # damage static / offline state of the module; the Weapons and Cargo tabs of the same console had
+        # no link (the Weapons one is a commented-out `#linkto=weapon`), so they never showed any damage.
+        # Linked to the helm like the other tabs.
+        (1,
+         "    tabname=Weapons\n    width=256\n    height=192\n#linkto=weapon\n",
+         "    tabname=Weapons\n    width=256\n    height=192\n#linkto=weapon\n    linkto=helm\n"),
+        (1,
+         "    tabname=Cargo\n    width=256\n    height=192\n",
+         "    tabname=Cargo\n    width=256\n    height=192\n    linkto=helm\n"),
+    ],
+
+    # The Infopedia article list (4:3 and 16:9 screens) is 238 / 268 units tall but its rows are 8 units high
+    # and start 2 units down, so the last row is cut in half at the bottom (the next entry's top edge shows
+    # under "Point Defence Lasers").  Trimmed to a whole number of rows plus one unit of margin, so the last
+    # row no longer touches the frame: 29 rows (4:3) and 32 rows (16:9).  The article text pane next to it is
+    # shortened the same way, so its last line stops above the bottom edge.
+    "ui.txt": [
+        (1,
+         "    selecttray=1,1,162,238,INFOPEDIA_ARTICLES\n",
+         "    selecttray=1,1,162,235,INFOPEDIA_ARTICLES\n"),
+        (1,
+         "    selecttray=1,1,162,268,INFOPEDIA_ARTICLES\n",
+         "    selecttray=1,1,162,259,INFOPEDIA_ARTICLES\n"),
+        (1,
+         "    textfield=164,1,154,238,INFOPEDIA_ARTICLE_CONTENT\n",
+         "    textfield=164,1,154,227,INFOPEDIA_ARTICLE_CONTENT\n"),
+        (1,
+         "    textfield=164,1,314,268,INFOPEDIA_ARTICLE_CONTENT\n",
+         "    textfield=164,1,314,259,INFOPEDIA_ARTICLE_CONTENT\n"),
+    ],
+
+    # Same for Ceres (also used by the Proxima's console) and Remora: their Weapons / Cargo tabs show the
+    # damage static of the helm like the other tabs of the console.
+    "ui_ceres.txt": [
+        (1,
+         "    tabname=Cargo\n    width=256\n    height=192\n",
+         "    tabname=Cargo\n    width=256\n    height=192\n    linkto=helm\n"),
+        (1,
+         "    shortname=c_weapons\n    tabname=Weapons\n    width=192\n    height=144\n#linkto=weapon\n",
+         "    shortname=c_weapons\n    tabname=Weapons\n    width=192\n    height=144\n#linkto=weapon\n    linkto=helm\n"),
+        (1,
+         "    shortname=c_weapons2\n    tabname=Weapons\n    width=256\n    height=192\n#linkto=weapon\n",
+         "    shortname=c_weapons2\n    tabname=Weapons\n    width=256\n    height=192\n#linkto=weapon\n    linkto=helm\n"),
+    ],
+    "ui_remora.txt": [
+        (1,
+         "    tabname=Cargo\n    width=256\n    height=192\n",
+         "    tabname=Cargo\n    width=256\n    height=192\n    linkto=helm\n"),
+    ],
+
+    # modules_npc.txt holds the NPC-only modules (the Remora's own RCS and sensor, the probe sensor).  The shop
+    # stock generator (TradeLocation::addRandomModules) picks module classes with a basevalue of at least 1,
+    # and the debug log of a game shows "AP-RCS1" (Remora RCS, basevalue 2505) and "Probe Sensor"
+    # (basevalue 1872) being stocked in shops -- cheap, and better than the shop equivalents.  The Remora's
+    # own sensor (RM-SNS) is already basevalue=0 and never appears.  Set the two to 0 like it: the modules
+    # stay and the ships and probes keep using them, they are just not sold.
+    "modules_npc.txt": [
+        (1,
+         "    basevalue=2505\n",
+         "    basevalue=0\n"),
+        (1,
+         "    basevalue=1872\n",
+         "    basevalue=0\n"),
+    ],
+
+    # BUG-032: the Comms Download / Sync terminal is a square (192x192)
+    # screen. The game only builds its log and "?" help pages for 4:3 and
+    # 16:9 screens (the only help/log layouts that exist), so on a square
+    # screen `hasmenu=true` can never produce working pages, and the
+    # buttons are dead. The Ceres III version never set the flag; the
+    # Enceladus and Proxima versions did. Cleared on those two so the
+    # terminal is the same on all three ships.
+    "enceladus_communications.txt": [
+        (1,
+         "    hasmenu=true\n\tscreen=e_commstate",
+         "\tscreen=e_commstate"),
+    ],
+    "proxima_comms.txt": [
+        (1,
+         "    hasmenu=true\n\tscreen=c_commstate",
+         "\tscreen=c_commstate"),
     ],
 }
+
+
+# Spelling and grammar fixes, generated by tools/textcheck/ois_textcheck.py into
+# text_fixes.py (same shape as FIXES: file -> [(count, old snippet, new snippet)]).
+# Merged per file because a file can appear in both tables; the entries here run
+# after the ones above. If text_fixes.py is absent a warning is printed and only FIXES is applied.
+try:
+    from text_fixes import TEXT_FIXES
+except ImportError:
+    print("[WARN] text_fixes.py not found next to apply_data_fixes.py -- the spelling and "
+          "grammar corrections will NOT be installed. Keep the patcher's files together.")
+    TEXT_FIXES = {}
+for _name, _entries in TEXT_FIXES.items():
+    FIXES.setdefault(_name, []).extend(_entries)
+
+
+# Module purchase emails (see ois_patcher.fix_module_purchase_email). Most categories
+# share one email text across every model ("Thank you for purchasing this weapons
+# module!"), so it never says which model or maker it is about. The grapple arms
+# and batteries already open with "...your <maker> <model> <type>"; this gives the
+# shared ones the same opening, built at install time from the player's own
+# modules_*.txt (nothing from the game is bundled). Only the first sentence changes.
+import re
+
+_GENERIC_EMAIL_OPENING = re.compile(
+    r"^(Thank you for purchasing|Congratulations on purchasing) this ([^!.^]+?)([!.])")
+
+
+def personalise_module_emails(assets_dir, mod_dst_dir):
+    """Returns the number of module emails rewritten."""
+    assets_dir, mod_dst_dir = Path(assets_dir), Path(mod_dst_dir)
+    changed = 0
+    for src in sorted(assets_dir.glob("modules_*.txt")):
+        dst = mod_dst_dir / src.name
+        text = (dst if dst.is_file() else src).read_text(encoding="utf-8")
+        new_text, n = [], 0
+        for block in re.split(r"(?m)^(?=begin module\s*$)", text):
+            name = re.search(r"(?m)^\s*name=(.+?)\s*$", block)
+            maker = re.search(r"(?m)^\s*manufacturer=(.+?)\s*$", block)
+            if name and maker:
+                def fix(m):
+                    nonlocal n
+                    body = m.group(2)
+                    mm = _GENERIC_EMAIL_OPENING.match(body)
+                    if not mm:
+                        return m.group(0)
+                    n += 1
+                    return (m.group(1) + mm.group(1) + " your " + maker.group(1) + " "
+                            + name.group(1) + " " + mm.group(2) + mm.group(3) + body[mm.end():])
+                block = re.sub(r"(?m)^(\s*email=)(.*)$", fix, block, count=1)
+            new_text.append(block)
+        if n:
+            mod_dst_dir.mkdir(parents=True, exist_ok=True)
+            dst.write_text("".join(new_text), encoding="utf-8")
+            changed += n
+    return changed
+
+
+# The game only reads news_*.txt and info_*.txt straight from its own assets/
+# folder (GameLogic loads them via OSInterface::listFiles(".\\assets\\*"), which never
+# looks at mod folders), so the mod system cannot override them.  Those fixes are
+# therefore applied to the files in place, with the untouched originals kept in a
+# folder OUTSIDE assets/ -- a backup left inside assets/ would itself match the
+# "news_" prefix and be loaded as a second article.
+INPLACE_PREFIXES = ("news_", "info_")
+ORIGINALS_DIRNAME = "oisbugfix_original_assets"
+
+
+def is_inplace(filename):
+    return filename.startswith(INPLACE_PREFIXES)
+
+
+def _apply_line_fixes(content, line_fixes):
+    """Returns the fixed text, or None if any snippet does not match exactly."""
+    for expected_count, old_line, new_line in line_fixes:
+        if content.count(old_line) != expected_count:
+            return None
+        content = content.replace(old_line, new_line)
+    return content
+
+
+def apply_inplace(assets_dir, backup_dir):
+    """Applies the news_/info_ fixes directly to assets/, keeping originals.
+
+    Safe to re-run: the backup (if present) is the pristine source, unless the
+    game files changed underneath it (a game update), in which case the current
+    files become the new originals.  Returns (applied, skipped)."""
+    assets_dir, backup_dir = Path(assets_dir), Path(backup_dir)
+    applied = skipped = 0
+    for filename, line_fixes in FIXES.items():
+        if not is_inplace(filename):
+            continue
+        target = assets_dir / filename
+        if not target.is_file():
+            print(f"  [SKIP] {filename}: not found in {assets_dir}")
+            skipped += 1
+            continue
+        backup = backup_dir / filename
+        current = target.read_bytes().decode("utf-8")
+        original = current
+        if backup.is_file():
+            saved = backup.read_bytes().decode("utf-8")
+            if current == saved or current == _apply_line_fixes(saved, line_fixes):
+                original = saved
+            # else: the game file changed since we backed it up -> treat it as the new original
+        fixed = _apply_line_fixes(original, line_fixes)
+        if fixed is None:
+            print(f"  [SKIP] {filename}: expected known text, found something different -- "
+                  f"different game version or already modified")
+            skipped += 1
+            continue
+        backup_dir.mkdir(parents=True, exist_ok=True)
+        if not backup.is_file() or backup.read_bytes().decode("utf-8") != original:
+            backup.write_bytes(original.encode("utf-8"))
+        target.write_bytes(fixed.encode("utf-8"))
+        applied += 1
+    if applied:
+        print(f"  [OK] {applied} news/info article(s) corrected in place "
+              f"(originals kept in {backup_dir.name}/)")
+    return applied, skipped
 
 
 def apply_all(assets_dir, mod_dst_dir):
@@ -341,6 +544,8 @@ def apply_all(assets_dir, mod_dst_dir):
 
     applied, skipped = 0, 0
     for filename, line_fixes in FIXES.items():
+        if is_inplace(filename):
+            continue          # handled by apply_inplace(); the mod system cannot override these
         src = assets_dir / filename
         if not src.is_file():
             print(f"  [SKIP] {filename}: not found in {assets_dir}")
@@ -365,6 +570,10 @@ def apply_all(assets_dir, mod_dst_dir):
         (mod_dst_dir / filename).write_text(content, encoding="utf-8")
         applied += 1
         print(f"  [OK] {filename}")
+
+    emails = personalise_module_emails(assets_dir, mod_dst_dir)
+    if emails:
+        print(f"  [OK] {emails} module purchase emails now name their own model and maker")
 
     return applied, skipped
 
@@ -397,6 +606,8 @@ def install(game_root, bundled_mod_dir):
     shutil.copy2(modinfo_src, mod_dst / "modinfo.txt")
 
     applied, skipped = apply_all(assets_dir, mod_dst)
+    a2, s2 = apply_inplace(assets_dir, game_root / ORIGINALS_DIRNAME)
+    applied, skipped = applied + a2, skipped + s2
 
     print(f"\n[OK] Bugfix mod: {applied} fix(es) applied, {skipped} skipped -- installed to {mod_dst}")
     return True
