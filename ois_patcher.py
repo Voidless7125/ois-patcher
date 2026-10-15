@@ -150,11 +150,27 @@ def _pause_before_exit():
 try:
     import pefile
 except ImportError:
-    print("This script needs 'pefile'. Open a terminal and run:\n"
-          "  py -m pip install pefile\n"
-          "(or: python -m pip install pefile)", file=sys.stderr)
-    _pause_before_exit()
-    sys.exit(1)
+    print("This script needs the 'pefile' package to parse game executables.", file=sys.stderr)
+    if confirm("Would you like to install 'pefile' now using pip?", assume_yes=False):
+        print("Installing pefile...", flush=True)
+        res = subprocess.run([sys.executable, "-m", "pip", "install", "pefile"], capture_output=True, text=True)
+        if res.returncode == 0:
+            print("Successfully installed 'pefile'! Continuing...")
+            try:
+                import pefile
+            except ImportError:
+                print("[ERROR] pefile was installed but could not be loaded. Please restart the script.", file=sys.stderr)
+                _pause_before_exit()
+                sys.exit(1)
+        else:
+            print(f"Failed to install pefile automatically:\n{res.stderr.strip()}\n", file=sys.stderr)
+            print("Please open a terminal and run manually:\n  py -m pip install pefile", file=sys.stderr)
+            _pause_before_exit()
+            sys.exit(1)
+    else:
+        print("Cannot continue without pefile. Exiting.", file=sys.stderr)
+        _pause_before_exit()
+        sys.exit(1)
 
 # The docstring promises the mod install degrades to a warning if this is
 # missing, so a hard ImportError here would break that promise on the very

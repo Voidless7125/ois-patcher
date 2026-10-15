@@ -22,11 +22,8 @@ Python on Windows is installed using the official **Python Install Manager (`.ms
    - As soon as the `.msix` installation finishes, a terminal window will **launch automatically** to install the default Python runtime.
    - When prompted in that terminal window to **add the global commands directory (`%LocalAppData%\Pythonin`) to your `PATH`**, press **`y`** (Yes) so `python`, `py`, and `pip` work everywhere.
    - *(Note: If you didn't get the prompt or closed the window early, open PowerShell or Command Prompt and run `py install default --configure`. If you need to add the directory to `PATH` manually later, click Start, search for **"Edit environment variables for your account"**, and add `%LocalAppData%\Pythonin` to your user `Path`.)*
-3. **Install the `pefile` Package:**
-   - Open a **new** PowerShell or Command Prompt window (so it picks up your updated `PATH`) and run:
-     ```powershell
-     py -m pip install pefile
-     ```
+3. **The `pefile` Package:**
+   - The patcher needs the `pefile` package to read and patch the game files. If it isn't installed yet, **`ois_patcher.py` will automatically ask if you want to install it** right when you run it and will handle it for you (or you can install it manually anytime via `py -m pip install pefile`).
 
 ### Step 2: Download and Extract the Patcher
 
