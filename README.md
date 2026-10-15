@@ -11,36 +11,47 @@ An unofficial community patch for *Objects in Space*, the space-stealth game by 
 
 ## Quick Start (Step-by-Step for Beginners)
 
-### Step 1: Install Python (and Enable `PATH`)
+### Step 1: Install Python (via Python Install Manager)
 
-Python on Windows now uses the **Python Install Manager** (distributed via the **Microsoft Store** or as an **`.msix` installer** from [python.org/downloads](https://www.python.org/downloads/)).
+Python on Windows is installed using the official **Python Install Manager (`.msix`)** from [python.org/downloads](https://www.python.org/downloads/) ([official Python Windows docs](https://docs.python.org/3/using/windows.html)):
 
-1. **Install Python:**
-   - **Option A (Microsoft Store — Easiest):** Open the **Microsoft Store** app on Windows, search for **Python Install Manager** (or **Python 3.13**), and click **Get / Install**.
-   - **Option B (python.org `.msix`):** Go to [python.org/downloads](https://www.python.org/downloads/), click the yellow **Download Python install manager** button to download the `.msix` file, and double-click it to install. *(If you choose the legacy "Windows installer (.exe)" instead, make sure to check **"Add python.exe to PATH"** on the first screen.)*
-2. **Enable Python on `PATH` (Official Python Setup):**
-   - Press the **Windows Key**, type **PowerShell** (or **Command Prompt**), and open it.
-   - Run the official Python Install Manager configuration command to install the default Python runtime and automatically register `py` and `python` on your Windows `PATH` ([official Python Windows docs](https://docs.python.org/3/using/windows.html)):
+1. **Download and Run the Installer:**
+   - Go to [python.org/downloads](https://www.python.org/downloads/) and click the yellow **Download Python Install Manager** button to download the `.msix` file.
+   - Double-click the downloaded `.msix` file and click **Install**.
+2. **Finish the Automatic Terminal Setup & Enable `PATH`:**
+   - As soon as the `.msix` installation finishes, a terminal window will **launch automatically** to install the default Python runtime.
+   - When prompted in that terminal window to **add the global commands directory (`%LocalAppData%\Pythonin`) to your `PATH`**, press **`y`** (Yes) so `python`, `py`, and `pip` work everywhere.
+   - *(Note: If you didn't get the prompt or closed the window early, open PowerShell or Command Prompt and run `py install default --configure`. If you need to add the directory to `PATH` manually later, click Start, search for **"Edit environment variables for your account"**, and add `%LocalAppData%\Pythonin` to your user `Path`.)*
+3. **Install the `pefile` Package:**
+   - Open a **new** PowerShell or Command Prompt window (so it picks up your updated `PATH`) and run:
      ```powershell
-     py install default --configure
+     py -m pip install pefile
      ```
-   - *(Note: If Windows opens a window or asks about **App execution aliases**, ensure **`python.exe`**, **`python3.exe`**, and **`py.exe`** are toggled **On** under **Settings → Apps → Advanced app settings → App execution aliases**).*
-3. **Close and reopen your terminal window** so Windows loads your updated `PATH`, then install the one package this patcher needs (`pefile`):
-   ```powershell
-   py -m pip install pefile
-   ```
 
 ### Step 2: Download and Extract the Patcher
 
-1. Download the latest release from the [Releases page](https://github.com/l33way/ois-patcher/releases) (or click the green **Code → Download ZIP** button on GitHub).
+**Choose your preferred installation method below:**
+
+#### Method A: Download the ZIP (Recommended for most players)
+1. Download the latest release `.zip` from the [Releases page](https://github.com/l33way/ois-patcher/releases) (or click the green **Code → Download ZIP** button on GitHub).
 2. **Right-click** the downloaded `.zip` file in File Explorer and click **Extract All...**.
    - **Important:** Do not double-click `ois_patcher.py` from *inside* the unextracted `.zip` preview! Extract the entire folder first and keep all files (`ois_patcher.py`, `apply_data_fixes.py`, `text_fixes.py`, and the `mod/` folder) together inside the same folder.
 
+#### Method B: Use Git Clone (Advanced — best for seamless auto-updates)
+If you are comfortable using Git, cloning the repository directly enables the patcher's built-in self-update feature so you can pull new fixes instantly:
+1. Open a terminal where you want to keep your patcher files and clone the repo:
+   ```powershell
+   git clone https://github.com/l33way/ois-patcher.git
+   cd ois-patcher
+   ```
+   *(Note: If you are using a personal fork such as Voidless7125's repository, clone your fork's URL instead so auto-update fetches from your fork).*
+2. The patcher will automatically verify your remote URL and check for updates on future runs.
+
 ### Step 3: Run `ois_patcher.py`
 
-- **Easiest way:** Open your extracted folder in File Explorer and **double-click `ois_patcher.py`**.
+- **Easiest way (ZIP install):** Open your extracted folder in File Explorer and **double-click `ois_patcher.py`**.
   - A window will open, automatically find your Steam (or GOG) *Objects in Space* installation, back up your original files, apply all binary and mod fixes, and wait for you to **press any key to close** when finished.
-- **From a Terminal (Optional):** You can also open a terminal in the extracted folder and run:
+- **From a Terminal:** You can also open a terminal in the patcher folder and run:
   ```powershell
   py ois_patcher.py
   ```
@@ -62,9 +73,8 @@ That's it! Launch *Objects in Space* through Steam as normal.
 ## Updating, Checking Status, & Uninstalling
 
 ### Updating to a Newer Release
-Download and extract the new release (or simply re-run `ois_patcher.py`). It detects the older patch version, restores your clean `.original-backup` files automatically, and applies the newest fixes cleanly on top.
-
-*(If you cloned this repository using `git clone`, running `ois_patcher.py` will also check GitHub for updates from your configured remote and ask if you'd like it to self-update before patching.)*
+- **If you used the ZIP:** Download and extract the new release over your existing folder (or re-run `ois_patcher.py`). It detects the older patch version, restores your clean `.original-backup` files automatically, and applies the newest fixes cleanly on top.
+- **If you used `git clone`:** Simply run `py ois_patcher.py`. The script will automatically check GitHub for upstream updates, show you the commit changelog, and ask if you'd like to pull and re-run automatically.
 
 ### Command-Line Options
 If you run `ois_patcher.py` from Command Prompt or PowerShell, you can pass these options:
@@ -89,9 +99,11 @@ If you ever want to revert everything by hand without running the script:
 ## Troubleshooting
 
 - **Double-clicking `ois_patcher.py` asks "How do you want to open this file?"**  
-  Python isn't associated with `.py` files yet, or isn't installed. Follow **Step 1** above, or open PowerShell in the folder (Shift + Right-Click empty space → *Open in Terminal*) and run `py ois_patcher.py`.
+  Python isn't associated with `.py` files yet, or the first-time setup didn't finish. Open PowerShell or Command Prompt and run `py install default --configure` (or `py install --refresh`), or run the patcher from a terminal in the extracted folder with `py ois_patcher.py`.
 - **`'py'` or `'python'` is not recognized:**  
-  Make sure you ran `py install default --configure` after installing Python Install Manager, and **closed and reopened** your terminal window. Also check **Windows Settings → Apps → Advanced app settings → App execution aliases** and ensure the Python aliases are switched **On**.
+  1. Make sure you opened a **new** terminal window after installing Python.
+  2. If you had an older version of Python installed previously, uninstall the old **"Python Launcher"** from Windows **Installed Apps** and check **Settings → Apps → Advanced app settings → App execution aliases** to make sure the **`python.exe`** and **`py.exe`** aliases are toggled **On** ([Python Windows Troubleshooting docs](https://docs.python.org/3/using/windows.html#troubleshooting)).
+  3. To check your `PATH` manually, click Start, search for **"Edit environment variables for your account"**, and ensure `%LocalAppData%\Pythonin` is listed under your user `Path`.
 - **`This script needs 'pefile'`:**  
   Open PowerShell or Command Prompt and run `py -m pip install pefile`.
 - **"Could not automatically find the game folder":**  
