@@ -125,10 +125,35 @@ import subprocess
 import sys
 from pathlib import Path
 
+def _pause_before_exit():
+    """Keep the console window open when launched on Windows (e.g. via
+    double-click in File Explorer), unless running unattended (--yes/-y)
+    or inside the child process of a self-update restart."""
+    if os.environ.get("OIS_PATCHER_NO_PAUSE"):
+        return
+    if any(a in ("--yes", "-y") for a in sys.argv[1:]):
+        return
+    if not sys.stdin or not sys.stdin.isatty():
+        return
+    try:
+        if os.name == "nt":
+            import msvcrt
+            print("\nPress any key to close this window...", end="", flush=True)
+            msvcrt.getch()
+            print()
+        else:
+            input("\nPress Enter to close...")
+    except Exception:
+        pass
+
+
 try:
     import pefile
 except ImportError:
-    print("This script needs 'pefile': pip install pefile", file=sys.stderr)
+    print("This script needs 'pefile'. Open a terminal and run:\n"
+          "  py -m pip install pefile\n"
+          "(or: python -m pip install pefile)", file=sys.stderr)
+    _pause_before_exit()
     sys.exit(1)
 
 # The docstring promises the mod install degrades to a warning if this is
@@ -151,7 +176,7 @@ SERVER_FIXES_SKIPPED = []
 # already patched" refusal means "you already ran this exact version" or
 # "an older version patched this -- restore the backup and re-run to
 # upgrade", instead of one generic message either way.
-PATCHER_VERSION = "0.4.0"
+PATCHER_VERSION = "0.4.1"
 VERSION_MARKER_PREFIX = b"OISPATCH:"
 VERSION_MARKER_SIZE = 32  # reserved bytes at the start of .ptch's raw data
 
@@ -2487,6 +2512,9 @@ def fix_autopilot_cruise_burn(data, pe, ptch_va, ptch_off, cave_cursor, server=F
     applied.append(label)
     return cave_cursor
 
+
+# ============================================================
+
 # ============================================================
 # Fix 33: Crash to desktop when returning from a station to the player
 # ship on saves played for some time (GitHub issue #58).
@@ -2619,7 +2647,6 @@ def fix_station_to_ship_crash(data, pe, ptch_va, ptch_off, cave_cursor):
     FIXES_APPLIED.append(label)
     return cave_cursor
 
-# ============================================================
 
 def fix_pirate_hunt_server(data, pe, ptch_va, ptch_off, cave_cursor):
     label = "Pirate Hunt crash guard (server)"
@@ -2750,7 +2777,6 @@ def patch_server_exe(exe_path):
     cave_cursor = fix_pds_torpedoes(data, pe, ptch_va, ptch_off, cave_cursor, server=True)
     cave_cursor = fix_autopilot_overshoot(data, pe, ptch_va, ptch_off, cave_cursor, server=True)
     cave_cursor = fix_autopilot_cruise_burn(data, pe, ptch_va, ptch_off, cave_cursor, server=True)
-    cave_cursor = fix_station_to_ship_crash(data, pe, ptch_va, ptch_off, cave_cursor)
     pe.close()
 
     if cave_cursor > ptch_size:
@@ -3576,7 +3602,7 @@ def prepare_for_patch(client_exe, force=False, assume_yes=False):
 #      does NOT imply consent here; --update does.
 # ============================================================
 
-REPO_URL = ""  # e.g. "https://github.com/you/ois-patcher" -- shown when git isn't usable
+REPO_URL = "https://github.com/l33way/ois-patcher"  # fallback when git origin remote can't be read
 UPDATED_ENV = "OIS_PATCHER_SELF_UPDATED"  # re-exec guard: one update per invocation
 
 
@@ -3590,15 +3616,32 @@ def _git(args, cwd, timeout=30):
         return None
 
 
-def _manual_update_hint(reason):
+def _detect_repo_url(cwd):
+    """Detects the GitHub repo URL from git's origin remote so forks
+    (e.g. Voidless7125/ois-patcher) automatically use their own URL,
+    falling back to REPO_URL when not in a git checkout."""
+    res = _git(["remote", "get-url", "origin"], cwd)
+    if res is not None and res.returncode == 0:
+        raw = res.stdout.strip()
+        if raw.startswith("git@github.com:"):
+            raw = "https://github.com/" + raw[len("git@github.com:"):]
+        if raw.endswith(".git"):
+            raw = raw[:-4]
+        if raw.startswith("http://") or raw.startswith("https://"):
+            return raw
+    return REPO_URL
+
+
+def _manual_update_hint(reason, repo_dir=None):
     """Silent when REPO_URL is unset: most people run this from a
     downloaded zip, and telling them every single run that updates can't
     be checked -- without being able to say where to look -- is noise,
     not help."""
-    if not REPO_URL:
+    url = _detect_repo_url(repo_dir) if repo_dir else REPO_URL
+    if not url:
         return
     print(f"\n[NOTICE] Can't check for updates automatically ({reason}).")
-    print(f"         Check for a newer release at: {REPO_URL}")
+    print(f"         Check for a newer release at: {url}")
 
 
 def check_for_updates(assume_update=False):
@@ -3632,7 +3675,7 @@ def check_for_updates(assume_update=False):
 
     upstream = _git(["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"], repo)
     if upstream is None or upstream.returncode != 0:
-        _manual_update_hint("this branch has no upstream to compare against")
+        _manual_update_hint("this branch has no upstream to compare against", repo)
         return False
 
     print("Checking for patcher updates...")
@@ -3681,6 +3724,7 @@ def check_for_updates(assume_update=False):
     print("Updated. Re-running the patcher with the new version...\n")
     env = dict(os.environ)
     env[UPDATED_ENV] = "1"
+    env["OIS_PATCHER_NO_PAUSE"] = "1"
     # A fresh process, not os.execv: this keeps console behaviour sane on
     # Windows and guarantees the new apply_data_fixes.py is the one imported.
     result = subprocess.run([sys.executable, str(Path(__file__).resolve()), *sys.argv[1:]], env=env)
@@ -3862,6 +3906,7 @@ def main():
     cave_cursor = fix_autopilot_overshoot(data, pe, ptch_va, ptch_off, cave_cursor)
     cave_cursor = fix_autopilot_cruise_burn(data, pe, ptch_va, ptch_off, cave_cursor)
     cave_cursor = fix_nav_jump_range_efficiency(data, pe, ptch_va, ptch_off, cave_cursor)
+    cave_cursor = fix_station_to_ship_crash(data, pe, ptch_va, ptch_off, cave_cursor)
     pe.close()
 
     if cave_cursor > ptch_size:
@@ -3895,4 +3940,16 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except SystemExit:
+        raise
+    except KeyboardInterrupt:
+        print("\nCancelled.")
+        sys.exit(130)
+    except Exception:
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
+    finally:
+        _pause_before_exit()
