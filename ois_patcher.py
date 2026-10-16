@@ -151,7 +151,12 @@ try:
     import pefile
 except ImportError:
     print("This script needs the 'pefile' package to parse game executables.", file=sys.stderr)
-    if confirm("Would you like to install 'pefile' now using pip?", assume_yes=False):
+    
+    try:
+        ans = input("Would you like to install 'pefile' now using pip? [y/N]: ").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        ans = "n"
+    if ans in ("y", "yes"):
         print("Installing pefile...", flush=True)
         res = subprocess.run([sys.executable, "-m", "pip", "install", "pefile"], capture_output=True, text=True)
         if res.returncode == 0:

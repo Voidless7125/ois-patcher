@@ -35,6 +35,13 @@ FIXES = {
          "    text=7,21,180,134,`7Permission is required to undock your utility shuttle from the Cassandra.,NONE,!OWES_MONEY_TO_DOCKED_STATION"),
     ],
 
+        # Lester F Ward transit bug fix (Game breaking loop)
+    "lfw_lesterfward3.txt": [
+        (1,
+         "req=!lfw_lesterfwradconv3done",
+         "req=!lfw_lesterfwardconv3done"),
+    ],
+
     "scenarios.txt": [
         (1,
          "include coop_escort_3.txtX",
@@ -384,6 +391,21 @@ FIXES = {
         (1,
          "    tabname=Cargo\n    width=256\n    height=192\n",
          "    tabname=Cargo\n    width=256\n    height=192\n    linkto=helm\n"),
+    ],
+
+    # modules_npc.txt holds the NPC-only modules (the Remora's own RCS and sensor, the probe sensor).  The shop
+    # stock generator (TradeLocation::addRandomModules) picks module classes with a basevalue of at least 1,
+    # and the debug log of a game shows "AP-RCS1" (Remora RCS, basevalue 2505) and "Probe Sensor"
+    # (basevalue 1872) being stocked in shops -- cheap, and better than the shop equivalents.  The Remora's
+    # own sensor (RM-SNS) is already basevalue=0 and never appears.  Set the two to 0 like it: the modules
+    # stay and the ships and probes keep using them, they are just not sold.
+    "modules_npc.txt": [
+        (1,
+         "    basevalue=2505\n",
+         "    basevalue=0\n"),
+        (1,
+         "    basevalue=1872\n",
+         "    basevalue=0\n"),
     ],
 
     # BUG-032: the Comms Download / Sync terminal is a square (192x192)
