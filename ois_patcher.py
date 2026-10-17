@@ -199,7 +199,7 @@ SERVER_FIXES_SKIPPED = []
 # upgrade", instead of one generic message either way.
 PATCHER_VERSION = "0.4.1"
 VERSION_MARKER_PREFIX = b"OISPATCH:"
-VERSION_MARKER_SIZE = 32  # reserved bytes at the start of .ptch's raw data
+VERSION_MARKER_SIZE = 48  # reserved bytes at the start of .ptch's raw data
 
 
 def load_pe(data):
@@ -401,7 +401,7 @@ def add_ptch_section(data):
     sec_hdr_off = ptch_section.get_file_offset()
     pe2.close()
 
-    CAVE_FILE_SIZE = 0x1000 if (PDS_VARIANT or CIV_VARIANT or IFF_DEBUG) else 0x800   # the optional variants' caves need more room
+    CAVE_FILE_SIZE = 0x1000 if (PDS_VARIANT or CIV_VARIANT or IFF_DEBUG or SPINUP_VARIANT) else 0x800   # the optional variants' caves need more room
     new_raw_data_offset = len(data)
     if new_raw_data_offset % file_align != 0:
         data.extend(b"\x00" * (file_align - (new_raw_data_offset % file_align)))
@@ -2410,19 +2410,21 @@ COUNTERMEASURE_FIXUPS = [(0x7, "EFFICIENCY"), (0xf8, "AFTER_SHOT"), (0x100, "NO_
 PDS_VARIANT_TAG = "+pds"
 CIV_VARIANT_TAG = "+civ"
 IFF_DEBUG_TAG = "+iffdbg"
+SPINUP_VARIANT_TAG = "+spin"
 BASE_VERSION = PATCHER_VERSION
 PDS_VARIANT = False
 CIV_VARIANT = False
 IFF_DEBUG = False
+SPINUP_VARIANT = False
 
 
-def enable_variants(pds=False, civ=False, iff_debug=False):
+def enable_variants(pds=False, civ=False, iff_debug=False, spinup=False):
     """Selects the optional variants for this run and rebuilds the version string.
     The tags always come out in the same order, so the string is canonical."""
-    global PATCHER_VERSION, PDS_VARIANT, CIV_VARIANT, IFF_DEBUG
-    PDS_VARIANT, CIV_VARIANT, IFF_DEBUG = bool(pds), bool(civ), bool(iff_debug)
+    global PATCHER_VERSION, PDS_VARIANT, CIV_VARIANT, IFF_DEBUG, SPINUP_VARIANT
+    PDS_VARIANT, CIV_VARIANT, IFF_DEBUG, SPINUP_VARIANT = bool(pds), bool(civ), bool(iff_debug), bool(spinup)
     PATCHER_VERSION = (BASE_VERSION + (PDS_VARIANT_TAG if PDS_VARIANT else "") + (CIV_VARIANT_TAG if CIV_VARIANT else "")
-                       + (IFF_DEBUG_TAG if IFF_DEBUG else ""))
+                       + (IFF_DEBUG_TAG if IFF_DEBUG else "") + (SPINUP_VARIANT_TAG if SPINUP_VARIANT else ""))
 
 
 def variants_of(version):
@@ -2433,8 +2435,8 @@ def variants_of(version):
 
 def describe_variants(tags):
     names = {PDS_VARIANT_TAG: "PDS variant", CIV_VARIANT_TAG: "civilian-demands variant",
-             IFF_DEBUG_TAG: "IFF debug logging"}
-    found = [names[t] for t in (PDS_VARIANT_TAG, CIV_VARIANT_TAG, IFF_DEBUG_TAG) if t in tags]
+             IFF_DEBUG_TAG: "IFF debug logging", SPINUP_VARIANT_TAG: "weapon spin-up variant"}
+    found = [names[t] for t in (PDS_VARIANT_TAG, CIV_VARIANT_TAG, IFF_DEBUG_TAG, SPINUP_VARIANT_TAG) if t in tags]
     return " + ".join(found) if found else "standard build"
 
 
@@ -2970,6 +2972,64 @@ def fix_civilians_comply(data, pe, ptch_va, ptch_off, cave_cursor, server=False)
 
 
 # ============================================================
+# OPTIONAL VARIANT (--weapon-spinup-fix): a weapon tube's spin-up gets shorter
+# as the weapons module's efficiency rises.
+#
+# Every timer the efficiency of a module touches uses `base x (2 - e)` (e = efficiency/100):
+# grapple, hack, comms sync, countermeasure reload, point-defence reload, jump-drive spin-up and
+# nav/helm boot all get shorter with better parts.  The weapon tube spin-up is the one exception: it
+# is `spinuptime x e x 0.5`, so a 180% launcher spins up 3.6 times slower than the 50% it was
+# "meant" to get.  The jump drive's spin-up uses the same field name and the same "spin up" button
+# and does it the other way.  Nothing in the game says this is deliberate, but there is no developer
+# statement either way, and fixing it cuts launcher spin-up to roughly a third, so it is optional.
+#
+# Seven places compute the figure and all seven must agree (the timer start, the value the
+# tube shows its progress against, the tube text and the weapon UI), so each of them has its
+# `call getEfficiencyPercent` redirected to one 13-byte stub:
+#       call getEfficiencyPercent ; neg eax ; add eax,200 ; ret          -> EAX = 200 - efficiency
+# The rest of each site (divide by 100, x 0.5, x spinuptime, truncate to int) is left alone, which
+# gives (2 - e) x 0.5 x spinuptime.  Above 200% efficiency the result would go negative; no weapons
+# module reaches that with any legal set of parts.
+# ============================================================
+
+def fix_weapon_spinup(data, pe, ptch_va, ptch_off, cave_cursor, server=False):
+    label = "Weapon tube spin-up gets longer with better parts (optional variant)" + (" (server)" if server else "")
+    applied, skipped = _fix_lists(server)
+
+    # (call getEfficiencyPercent) in: ShipModule::runLogic, Ship::fireWeapon, ShipInterface::doSetWeaponTarget,
+    # ShipNumericalData::getTubeSpinUpPercent, ShipTextData::getTubeSummary / getTubeAdvancedSummary, UI_WeaponTubes::render
+    if server:
+        SITES = (0x004AF2ED, 0x0050FCA0, 0x004E3830, 0x004EC673, 0x004F09FC, 0x004F0FC3, 0x0058E630)
+    else:
+        SITES = (0x004AF43D, 0x00510400, 0x004E3D40, 0x004ECC13, 0x004F0F8C, 0x004F1553, 0x00590360)
+    MULSS_AT = (0x3B, 0x32, 0x2B, 0x25, 0x2A, 0x27, 0x28)           # offset of `mulss xmm0,[reg+0x108]` after each call
+    MULSS = bytes.fromhex("F30F598008010000")
+
+    if verify_site(data, pe, SITES[0], bytes([0xE8]), label + " (call)") is None:
+        return bail(label, cave_cursor, server)
+    GET_EFF = _rel32_target(data, pe, SITES[0], 1)
+    if verify_site(data, pe, GET_EFF, bytes.fromhex("558BEC83EC1C538B19"), label + " (getEfficiencyPercent)") is None:
+        return bail(label, cave_cursor, server)
+    for site, at in zip(SITES, MULSS_AT):
+        if (verify_site(data, pe, site, bytes([0xE8]), label + f" (call at {site:#x})") is None
+                or _rel32_target(data, pe, site, 1) != GET_EFF
+                or verify_site(data, pe, site + at, MULSS, label + f" (x spinuptime at {site:#x})") is None):
+            return bail(label, cave_cursor, server)
+
+    cave_va = ptch_va + cave_cursor
+    stub = b"\xE8" + struct.pack("<i", GET_EFF - (cave_va + 5)) + bytes.fromhex("F7D8" "05C8000000" "C3")
+    data[ptch_off + cave_cursor: ptch_off + cave_cursor + len(stub)] = stub
+    cave_cursor += len(stub)
+    for site in SITES:
+        neutralize_relocations(data, pe, site, 5, label)
+        off = va_to_offset(pe, site)
+        data[off:off + 5] = b"\xE8" + struct.pack("<i", cave_va - (site + 5))
+    print(f"  [OK] {label}")
+    applied.append(label)
+    return cave_cursor
+
+
+# ============================================================
 # Fix 33: some NPC ships turn up with their IFF off ("Unknown" in red on the nav map) and
 # "Turning my reactors off" in the debug log, on some machines and not on others -- Leslie
 # Garbut's SS Jolly Rancher in the intro, for one.  ShipBehaviour (0x164 bytes, allocated
@@ -3274,6 +3334,8 @@ def patch_server_exe(exe_path):
         cave_cursor = fix_pds_torpedoes(data, pe, ptch_va, ptch_off, cave_cursor, server=True)
     if CIV_VARIANT:
         cave_cursor = fix_civilians_comply(data, pe, ptch_va, ptch_off, cave_cursor, server=True)
+    if SPINUP_VARIANT:
+        cave_cursor = fix_weapon_spinup(data, pe, ptch_va, ptch_off, cave_cursor, server=True)
     cave_cursor = fix_power_drain_modifier(data, pe, ptch_va, ptch_off, cave_cursor, server=True)
     cave_cursor = fix_autopilot_overshoot(data, pe, ptch_va, ptch_off, cave_cursor, server=True)
     cave_cursor = fix_autopilot_cruise_burn(data, pe, ptch_va, ptch_off, cave_cursor, server=True)
@@ -3881,7 +3943,7 @@ def print_status(game_dir):
         if status.state == STATE_PATCHED and status.version != PATCHER_VERSION:
             if variants_of(status.version):
                 print(f"  {'':<16} -> {describe_variants(variants_of(status.version))} installed; "
-                      f"re-run with the same --pds-everything / --civilians-comply / --debug-iff options to keep it")
+                      f"re-run with the same --pds-everything / --civilians-comply / --debug-iff / --weapon-spinup-fix options to keep it")
             else:
                 print(f"  {'':<16} -> run this script with no arguments to update it to v{PATCHER_VERSION}")
     mod_dir = game_dir.joinpath(*MOD_DIR_RELATIVE)
@@ -4274,6 +4336,12 @@ def main():
                         help="DIAGNOSTIC, not a fix: logs every change of an NPC ship's IFF flag to the "
                              "debug log (lines starting 'IFFDBG'), saying whether it changed during the "
                              "AI update or outside it.  Client only.")
+    parser.add_argument("--weapon-spinup-fix", action="store_true",
+                        help="OPTIONAL VARIANT, not a bug fix: a weapon tube's spin-up gets SHORTER as the "
+                             "weapons module's efficiency rises (spinuptime x (2 - efficiency) x 0.5, the same "
+                             "rule every other timer uses).  Stock multiplies by the efficiency instead, so "
+                             "better parts make torpedoes spin up slower.  Changes balance: spin-up times drop "
+                             "to roughly a third.")
     parser.add_argument("--uninstall", action="store_true",
                         help="Restore the original exe(s) from their .original-backup files "
                              "and remove the bugfix mod, then exit.")
@@ -4292,7 +4360,7 @@ def main():
                         help="With --uninstall, leave the .original-backup files in place "
                              "instead of deleting them after a verified restore.")
     args = parser.parse_args()
-    enable_variants(pds=args.pds_everything, civ=args.civilians_comply, iff_debug=args.debug_iff)
+    enable_variants(pds=args.pds_everything, civ=args.civilians_comply, iff_debug=args.debug_iff, spinup=args.weapon_spinup_fix)
 
     if args.list_installs:
         found = find_game_dirs()
@@ -4431,6 +4499,8 @@ def main():
         cave_cursor = fix_civilians_comply(data, pe, ptch_va, ptch_off, cave_cursor)
     if IFF_DEBUG:
         cave_cursor = fix_iff_debug(data, pe, ptch_va, ptch_off, cave_cursor)
+    if SPINUP_VARIANT:
+        cave_cursor = fix_weapon_spinup(data, pe, ptch_va, ptch_off, cave_cursor)
     cave_cursor = fix_power_drain_modifier(data, pe, ptch_va, ptch_off, cave_cursor)
     fix_terminal_power_units(data, pe)
     cave_cursor = fix_forced_conversation_first_option(data, pe, ptch_va, ptch_off, cave_cursor)

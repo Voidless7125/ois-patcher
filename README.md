@@ -86,6 +86,7 @@ If you run `ois_patcher.py` from Command Prompt or PowerShell, you can pass thes
 | `py ois_patcher.py --yes` | Skips confirmation prompts and exits immediately without waiting for a keypress (for scripts). |
 | `py ois_patcher.py --pds-everything` | (this branch) Applies the point-defence variant described below. |
 | `py ois_patcher.py --debug-iff` | (this branch) Diagnostic: logs NPC IFF changes to the debug log. |
+| `py ois_patcher.py --weapon-spinup-fix` | (this branch) Weapon tube spin-up gets shorter with better parts instead of longer. |
 | `py ois_patcher.py --civilians-comply` | (this branch) Applies the civilian-demands variant described below. |
 
 ### Manual Uninstall (If Needed)
@@ -158,9 +159,40 @@ they are gameplay changes or fixes the upstream maintainer has not accepted.
 - **`--debug-iff`** (diagnostic, off by default): logs every change of an NPC ship's IFF flag to the debug
   log as `IFFDBG <ship>: IFF <old> -> <new>, changed inside|outside the AI update`. Used to find out why some
   ships (e.g. Leslie Garbut's SS Jolly Rancher in the intro) arrive with their IFF off (`tools/iffdebug/`).
+- **`--weapon-spinup-fix`** (optional, off by default): described below.
 - **`--pds-everything`** and **`--civilians-comply`**: optional flags, described below. Without
   `--pds-everything` this branch applies the same point-defence fix as `master`; with it, the variant
   below replaces that fix.
+
+### Optional variant: weapon spin-up gets shorter with better parts (`--weapon-spinup-fix`)
+
+**Not a bug fix as far as the maintainers can prove, and off by default.** Every timer a module's
+efficiency touches is `base x (2 - e)` (`e` = efficiency / 100): grapple, hack, comms sync, countermeasure
+reload, point-defence reload, jump-drive spin-up, nav and helm boot. A weapon tube's spin-up is the one that
+isn't: it is `spinuptime x e x 0.5`, so better parts make a torpedo spin up *slower*. The jump drive uses the
+same field name and the same "spin up" button and does it the other way. There is no developer statement
+either way, and the fix cuts spin-up to roughly a third, so it is an opt-in rather than part of the standard
+patch.
+
+```
+python ois_patcher.py --weapon-spinup-fix
+python tools/spinup/test_spinup.py <game dir>/ois.exe
+```
+
+Seven places compute the figure (the timer start in `ShipModule::runLogic`, the progress bar's denominator
+in four UI/text functions and `doSetWeaponTarget`, and the timer restart in `Ship::fireWeapon`); all seven
+must agree, so each one's call to `getEfficiencyPercent` goes through one 13-byte stub that returns
+`200 - efficiency`. Client and server. Spin-up in game time units, by launcher:
+
+| Launcher | Tubes | spinuptime | Stock build, before -> after | Best parts, before -> after |
+|---|---|---|---|---|
+| MPL-060 | 2 | 26.5 | 16 -> 10 | 17 -> 8 |
+| PL-900 | 4 | 24 | 18 -> 5 | 20 -> 3 |
+| PL-920 | 4 | 21.5 | 17 -> 3 | 19 -> 1 |
+| SPL-5S | 6 | 17 | 11 -> 5 | 12 -> 4 |
+| SPL-9S | 8 | 20 | 14 -> 5 | 15 -> 4 |
+
+Efficiency of 200% or more would make the figure zero or negative; no weapons module reaches that with legal parts.
 
 ### Optional variant: a point-defence system that works (`--pds-everything`)
 
