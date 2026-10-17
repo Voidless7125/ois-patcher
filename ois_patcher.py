@@ -2970,6 +2970,44 @@ def fix_civilians_comply(data, pe, ptch_va, ptch_off, cave_cursor, server=False)
 
 
 # ============================================================
+# Fix 33: some NPC ships turn up with their IFF off ("Unknown" in red on the nav map) and
+# "Turning my reactors off" in the debug log, on some machines and not on others -- Leslie
+# Garbut's SS Jolly Rancher in the intro, for one.  ShipBehaviour (0x164 bytes, allocated
+# with operator_new, which does not clear memory) has a "stealthy" byte at +0x160 that is
+# set to 1 when a ship is a pirate or has `stealthy=true`, but is never set to 0
+# otherwise: the constructor initialises everything up to +0x158 and stops.  Its reader
+# (ShipBehaviour::general_runLogic) treats any non-zero value as "run dark": IFF off and
+# the reactors switched off.  So every other general-mode ship runs dark if the leftover heap
+# memory happens to be non-zero, which depends on what the heap held before.  A debug log
+# taken with an IFF diagnostic showed two scripted ships (Spioenkop and the Jolly Rancher)
+# switching IFF 1 -> 0 inside the AI update the moment their first desire started.
+# Fix: the constructor's last store (`mov [edi+0x158],0`) also zeroes +0x15c and +0x160, the
+# rest of the object.  Client and server.
+# ============================================================
+
+def fix_behaviour_uninitialised_stealth(data, pe, ptch_va, ptch_off, cave_cursor, server=False):
+    label = "NPC ships run dark (IFF off) from uninitialised memory" + (" (server)" if server else "")
+    applied, skipped = _fix_lists(server)
+    SITE = 0x00502144 if server else 0x00502864          # last store of ShipBehaviour::ShipBehaviour
+    if verify_site(data, pe, SITE - 10, bytes.fromhex("C7875401000000000000" "C7875801000000000000" "8B4F3C8B476C"),
+                   label) is None:
+        return bail(label, cave_cursor, server)
+    neutralize_relocations(data, pe, SITE, 10, label)
+    cave_va = ptch_va + cave_cursor
+    c = bytearray(bytes.fromhex("C7875801000000000000"))        # MOV DWORD [EDI+0x158],0   (the original store)
+    c += bytes.fromhex("C7875C01000000000000")                  # MOV DWORD [EDI+0x15C],0
+    c += bytes.fromhex("C7876001000000000000")                  # MOV DWORD [EDI+0x160],0   the stealthy flag
+    c += b"\xE9" + _rel32(cave_va, len(c), SITE + 10, 1)
+    data[ptch_off + cave_cursor: ptch_off + cave_cursor + len(c)] = c
+    cave_cursor += len(c)
+    off = va_to_offset(pe, SITE)
+    data[off:off + 10] = b"\xE9" + struct.pack("<i", cave_va - (SITE + 5)) + b"\x90" * 5
+    print(f"  [OK] {label}")
+    applied.append(label)
+    return cave_cursor
+
+
+# ============================================================
 
 # ============================================================
 # Fix 33: Crash to desktop when returning from a station to the player
@@ -3239,6 +3277,7 @@ def patch_server_exe(exe_path):
     cave_cursor = fix_power_drain_modifier(data, pe, ptch_va, ptch_off, cave_cursor, server=True)
     cave_cursor = fix_autopilot_overshoot(data, pe, ptch_va, ptch_off, cave_cursor, server=True)
     cave_cursor = fix_autopilot_cruise_burn(data, pe, ptch_va, ptch_off, cave_cursor, server=True)
+    cave_cursor = fix_behaviour_uninitialised_stealth(data, pe, ptch_va, ptch_off, cave_cursor, server=True)
     pe.close()
 
     if cave_cursor > ptch_size:
@@ -4399,6 +4438,7 @@ def main():
     cave_cursor = fix_pds_panel_name_overflow(data, pe, ptch_va, ptch_off, cave_cursor)
     cave_cursor = fix_autopilot_overshoot(data, pe, ptch_va, ptch_off, cave_cursor)
     cave_cursor = fix_autopilot_cruise_burn(data, pe, ptch_va, ptch_off, cave_cursor)
+    cave_cursor = fix_behaviour_uninitialised_stealth(data, pe, ptch_va, ptch_off, cave_cursor)
     cave_cursor = fix_nav_jump_range_efficiency(data, pe, ptch_va, ptch_off, cave_cursor)
     cave_cursor = fix_station_to_ship_crash(data, pe, ptch_va, ptch_off, cave_cursor)
     pe.close()
