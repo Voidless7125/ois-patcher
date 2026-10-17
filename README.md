@@ -85,6 +85,7 @@ If you run `ois_patcher.py` from Command Prompt or PowerShell, you can pass thes
 | `py ois_patcher.py --force` | Forces a fresh re-patch from backup even if already on the current version. |
 | `py ois_patcher.py --yes` | Skips confirmation prompts and exits immediately without waiting for a keypress (for scripts). |
 | `py ois_patcher.py --pds-everything` | (this branch) Applies the point-defence variant described below. |
+| `py ois_patcher.py --debug-iff` | (this branch) Diagnostic: logs NPC IFF changes to the debug log. |
 | `py ois_patcher.py --civilians-comply` | (this branch) Applies the civilian-demands variant described below. |
 
 ### Manual Uninstall (If Needed)
@@ -154,6 +155,9 @@ they are gameplay changes or fixes the upstream maintainer has not accepted.
 - **Torpedo that loses its target drifts** (always applied on this branch): when the ship a torpedo
   is homing on is destroyed, the torpedo no longer re-targets the nearest contact; it drifts and can be
   re-targeted by hand (exe, client and server; `tools/torp/`).
+- **`--debug-iff`** (diagnostic, off by default): logs every change of an NPC ship's IFF flag to the debug
+  log as `IFFDBG <ship>: IFF <old> -> <new>, changed inside|outside the AI update`. Used to find out why some
+  ships (e.g. Leslie Garbut's SS Jolly Rancher in the intro) arrive with their IFF off (`tools/iffdebug/`).
 - **`--pds-everything`** and **`--civilians-comply`**: optional flags, described below. Without
   `--pds-everything` this branch applies the same point-defence fix as `master`; with it, the variant
   below replaces that fix.

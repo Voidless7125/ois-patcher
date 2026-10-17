@@ -401,7 +401,7 @@ def add_ptch_section(data):
     sec_hdr_off = ptch_section.get_file_offset()
     pe2.close()
 
-    CAVE_FILE_SIZE = 0x1000 if (PDS_VARIANT or CIV_VARIANT) else 0x800   # the optional variants' caves need more room
+    CAVE_FILE_SIZE = 0x1000 if (PDS_VARIANT or CIV_VARIANT or IFF_DEBUG) else 0x800   # the optional variants' caves need more room
     new_raw_data_offset = len(data)
     if new_raw_data_offset % file_align != 0:
         data.extend(b"\x00" * (file_align - (new_raw_data_offset % file_align)))
@@ -2181,6 +2181,55 @@ def fix_torpedo_lost_target(data, pe, ptch_va, ptch_off, cave_cursor, server=Fal
     return cave_cursor
 
 
+IFF_DEBUG_CAVE = bytes.fromhex(
+    "56535783ec08f30f110c2489ce31ffe81d000000f30f100c2489f1e8b2b2b2b2"
+    "bf01000000e80700000083c4085f5b5ec38b466c85c00f84930000008b484085"
+    "c90f84880000000fb65134420fb68e6201000088966201000039d17472494ae8"
+    "4700000047414d45004946464442472025733a20494646202564202d3e202564"
+    "2c206368616e6765642025732074686520414920757064617465006f75747369"
+    "646500696e7369646500005bc1e7038d7c3b375752518d480883781c1072028b"
+    "09518d4b055153e8a1a1a1a183c418c3"
+)
+IFF_DEBUG_PRINT_AT, IFF_DEBUG_RUN_AT = 200, 28     # rel32 operands to fill in (see tools/iffdebug/asm_iff.py)
+
+
+# ============================================================
+# OPTIONAL DIAGNOSTIC (--debug-iff): logs every change of an NPC ship's IFF flag.
+# Not a fix, and not applied by default.  Some NPC ships (Leslie Garbut's SS Jolly
+# Rancher in the intro) turn up with their IFF off, shown as "Unknown" in red, and
+# nothing in the debug log says why.  ShipBehaviour::runLogic (the per-frame AI
+# update, 0x503930) has one caller; it is wrapped so that the IFF flag
+# (SystemManager+0x34) is compared before and after the update, and a line like
+#   IFFDBG SS Jolly Rancher: IFF 1 -> 0, changed inside the AI update
+# goes to the debug log: "inside" if the change happened during the AI update,
+# "outside" if something else changed it between two updates.  The first sighting
+# of a ship logs "IFF -1 -> <value>".  The previous value is kept in an unused byte
+# of the ShipBehaviour object (+0x162).  Client only.
+# ============================================================
+
+def fix_iff_debug(data, pe, ptch_va, ptch_off, cave_cursor):
+    label = "IFF debug logging (diagnostic)"
+    CALL, RUN_LOGIC, DEBUG_PRINT = 0x0040CD66, 0x00503930, 0x00592DA0
+    if verify_site(data, pe, CALL - 5, bytes.fromhex("F30F104DEC") + b"\xE8", label + " (call site)") is None \
+            or _rel32_target(data, pe, CALL, 1) != RUN_LOGIC \
+            or verify_site(data, pe, RUN_LOGIC, bytes.fromhex("558BEC6AFF68"), label + " (runLogic)") is None \
+            or verify_site(data, pe, DEBUG_PRINT - 0, bytes.fromhex("55"), label + " (debugPrint)") is None:
+        return bail(label, cave_cursor)
+    neutralize_relocations(data, pe, CALL, 5, label)
+    cave_va = ptch_va + cave_cursor
+    body = bytearray(IFF_DEBUG_CAVE)
+    struct.pack_into("<i", body, IFF_DEBUG_PRINT_AT, DEBUG_PRINT - (cave_va + IFF_DEBUG_PRINT_AT + 4))
+    struct.pack_into("<i", body, IFF_DEBUG_RUN_AT, RUN_LOGIC - (cave_va + IFF_DEBUG_RUN_AT + 4))
+    data[ptch_off + cave_cursor: ptch_off + cave_cursor + len(body)] = body
+    cave_cursor += len(body)
+    off = va_to_offset(pe, CALL)
+    data[off:off + 5] = b"\xE8" + struct.pack("<i", cave_va - (CALL + 5))
+    print(f"  [OK] {label}")
+    FIXES_APPLIED.append(label)
+    return cave_cursor
+
+
+
 # ============================================================
 # Fix 24: the power screen's "Drain (Normal)" figure disagrees with the sum of the
 # modules' own drain figures (theoretical 1.65 vs actual 2.42).  Two causes:
@@ -2360,17 +2409,20 @@ COUNTERMEASURE_FIXUPS = [(0x7, "EFFICIENCY"), (0xf8, "AFTER_SHOT"), (0x100, "NO_
 # (e.g. "0.4.0+pds+civ"), so a later run can tell which flavour is installed.
 PDS_VARIANT_TAG = "+pds"
 CIV_VARIANT_TAG = "+civ"
+IFF_DEBUG_TAG = "+iffdbg"
 BASE_VERSION = PATCHER_VERSION
 PDS_VARIANT = False
 CIV_VARIANT = False
+IFF_DEBUG = False
 
 
-def enable_variants(pds=False, civ=False):
+def enable_variants(pds=False, civ=False, iff_debug=False):
     """Selects the optional variants for this run and rebuilds the version string.
     The tags always come out in the same order, so the string is canonical."""
-    global PATCHER_VERSION, PDS_VARIANT, CIV_VARIANT
-    PDS_VARIANT, CIV_VARIANT = bool(pds), bool(civ)
-    PATCHER_VERSION = BASE_VERSION + (PDS_VARIANT_TAG if PDS_VARIANT else "") + (CIV_VARIANT_TAG if CIV_VARIANT else "")
+    global PATCHER_VERSION, PDS_VARIANT, CIV_VARIANT, IFF_DEBUG
+    PDS_VARIANT, CIV_VARIANT, IFF_DEBUG = bool(pds), bool(civ), bool(iff_debug)
+    PATCHER_VERSION = (BASE_VERSION + (PDS_VARIANT_TAG if PDS_VARIANT else "") + (CIV_VARIANT_TAG if CIV_VARIANT else "")
+                       + (IFF_DEBUG_TAG if IFF_DEBUG else ""))
 
 
 def variants_of(version):
@@ -2380,8 +2432,9 @@ def variants_of(version):
 
 
 def describe_variants(tags):
-    names = {PDS_VARIANT_TAG: "PDS variant", CIV_VARIANT_TAG: "civilian-demands variant"}
-    found = [names[t] for t in (PDS_VARIANT_TAG, CIV_VARIANT_TAG) if t in tags]
+    names = {PDS_VARIANT_TAG: "PDS variant", CIV_VARIANT_TAG: "civilian-demands variant",
+             IFF_DEBUG_TAG: "IFF debug logging"}
+    found = [names[t] for t in (PDS_VARIANT_TAG, CIV_VARIANT_TAG, IFF_DEBUG_TAG) if t in tags]
     return " + ".join(found) if found else "standard build"
 
 
@@ -3789,7 +3842,7 @@ def print_status(game_dir):
         if status.state == STATE_PATCHED and status.version != PATCHER_VERSION:
             if variants_of(status.version):
                 print(f"  {'':<16} -> {describe_variants(variants_of(status.version))} installed; "
-                      f"re-run with the same --pds-everything / --civilians-comply options to keep it")
+                      f"re-run with the same --pds-everything / --civilians-comply / --debug-iff options to keep it")
             else:
                 print(f"  {'':<16} -> run this script with no arguments to update it to v{PATCHER_VERSION}")
     mod_dir = game_dir.joinpath(*MOD_DIR_RELATIVE)
@@ -4178,6 +4231,10 @@ def main():
                              "cargo when you demand it, a torpedo of yours that is still in flight now "
                              "counts as a credible threat, and a civilian you have demanded cargo from "
                              "can be hailed again.")
+    parser.add_argument("--debug-iff", action="store_true",
+                        help="DIAGNOSTIC, not a fix: logs every change of an NPC ship's IFF flag to the "
+                             "debug log (lines starting 'IFFDBG'), saying whether it changed during the "
+                             "AI update or outside it.  Client only.")
     parser.add_argument("--uninstall", action="store_true",
                         help="Restore the original exe(s) from their .original-backup files "
                              "and remove the bugfix mod, then exit.")
@@ -4196,7 +4253,7 @@ def main():
                         help="With --uninstall, leave the .original-backup files in place "
                              "instead of deleting them after a verified restore.")
     args = parser.parse_args()
-    enable_variants(pds=args.pds_everything, civ=args.civilians_comply)
+    enable_variants(pds=args.pds_everything, civ=args.civilians_comply, iff_debug=args.debug_iff)
 
     if args.list_installs:
         found = find_game_dirs()
@@ -4333,6 +4390,8 @@ def main():
         cave_cursor = fix_pds_torpedoes(data, pe, ptch_va, ptch_off, cave_cursor)
     if CIV_VARIANT:
         cave_cursor = fix_civilians_comply(data, pe, ptch_va, ptch_off, cave_cursor)
+    if IFF_DEBUG:
+        cave_cursor = fix_iff_debug(data, pe, ptch_va, ptch_off, cave_cursor)
     cave_cursor = fix_power_drain_modifier(data, pe, ptch_va, ptch_off, cave_cursor)
     fix_terminal_power_units(data, pe)
     cave_cursor = fix_forced_conversation_first_option(data, pe, ptch_va, ptch_off, cave_cursor)
