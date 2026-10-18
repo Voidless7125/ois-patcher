@@ -498,6 +498,109 @@ MECHANIC_FIXES = {
 }
 
 
+# Data half of the optional --ui-extras variant: two screen features the game still implements but
+# whose UI lines were commented out or never written.  Data only; the exe is untouched.
+#
+# 1. Sensors "AUTO" button (SENSOR_SET_AUTO / SENSOR_UNSET_AUTO, state SENSORS_AUTO): while on, the sensor
+#    screen keeps the most dangerous contact selected ("Auto-selected new object" in the debug log).  The
+#    commented-out lines sat on top of the LADAR button (Enceladus) or inside the waveform display (the Ceres
+#    copy kept the Remora's row), which is probably why they were switched off; the button goes in the free
+#    space right of LADAR on each screen's button row instead.
+# 2. The Enceladus docking screen gets the depot block the Ceres/Proxima screen (c_docking) already has.
+UI_EXTRAS_FIXES = {
+    "ui_ceres.txt": [
+        (1, "#button=65,96,30,`$AUTO,SENSOR_UNSET_AUTO,SENSORS_AUTO\n"
+            "#button=65,96,30,`8AUTO,SENSOR_SET_AUTO,!SENSORS_AUTO",
+            "    button=101,143,30,`!AUTO,SENSOR_UNSET_AUTO,SENSORS_AUTO,tooltip=Keep the most dangerous contact selected\n"
+            "    button=101,143,30,`8AUTO,SENSOR_SET_AUTO,!SENSORS_AUTO,tooltip=Keep the most dangerous contact selected"),
+    ],
+    "ui_enceladus.txt": [
+        (1, "#button=65,143,30,`$AUTO,SENSOR_UNSET_AUTO,SENSORS_AUTO\n"
+            "#button=65,143,30,`8AUTO,SENSOR_SET_AUTO,!SENSORS_AUTO",
+            "    button=101,143,30,`!AUTO,SENSOR_UNSET_AUTO,SENSORS_AUTO,tooltip=Keep the most dangerous contact selected\n"
+            "    button=101,143,30,`8AUTO,SENSOR_SET_AUTO,!SENSORS_AUTO,tooltip=Keep the most dangerous contact selected"),
+        (1, "    data=3,60,250,48,JUMPGATE_STATE,IS_DOCKED_WITH_JUMPGATE",
+            "    data=3,60,250,48,JUMPGATE_STATE,IS_DOCKED_WITH_JUMPGATE\n"
+            "\n"
+            "    data=3,60,250,48,DEPOT_STATE,IS_DOCKED_WITH_DEPOT\n"
+            "\n"
+            "    button=158,110,88,`$REPAIR SYSTEMS,REPAIR_MODULES_AT_DEPOT,CAN_REPAIR_MODULES_AT_DEPOT\n"
+            "    greyedbutton=158,110,88,REPAIR SYSTEMS,NONE,CANNOT_REPAIR_MODULES_AT_DEPOT\n"
+            "\n"
+            "    button=158,122,88,`$REPAIR HULL,REPAIR_HULL_AT_DEPOT,CAN_REPAIR_HULL_AT_DEPOT\n"
+            "    greyedbutton=158,122,88,REPAIR HULL,NONE,CANNOT_REPAIR_HULL_AT_DEPOT\n"
+            "\n"
+            "    button=158,134,88,`$BUY CM,BUY_CM_AT_DEPOT,CAN_BUY_CM_AT_DEPOT\n"
+            "    greyedbutton=158,134,88,BUY CM,NONE,CANNOT_BUY_CM_AT_DEPOT\n"
+            "\n"
+            "    button=158,146,88,`$BUY TORPEDO,REARM_AT_DEPOT,CAN_REARM_AT_DEPOT\n"
+            "    greyedbutton=158,146,88,BUY TORPEDO,NONE,CANNOT_REARM_AT_DEPOT"),
+    ],
+    "ui_remora.txt": [
+        (1, "#button=65,96,30,`$AUTO,SENSOR_UNSET_AUTO,SENSORS_AUTO\n"
+            "#button=65,96,30,`8AUTO,SENSOR_SET_AUTO,!SENSORS_AUTO",
+            "    button=101,96,30,`!AUTO,SENSOR_UNSET_AUTO,SENSORS_AUTO,tooltip=Keep the most dangerous contact selected\n"
+            "    button=101,96,30,`8AUTO,SENSOR_SET_AUTO,!SENSORS_AUTO,tooltip=Keep the most dangerous contact selected"),
+    ],
+}
+
+# Data half of the optional --depots variant: the game has a "DP-9 Depot" station class (type=depot: repair
+# systems, repair hull, buy countermeasures, rearm; the Ceres/Proxima docking screen has the buttons) and a
+# `begin depot` sector block, but no sector file uses either.  This puts one depot, 25 Gm from the first listed
+# station, in each of the twelve main systems (the first station's faction, rego OP-DEPOT00 ... OP-DEPOT11).
+# Experimental: nothing in the game places depots, so none of this has been seen working.
+DEPOT_FIXES = {
+    'sector_magella.txt': [(1,
+         'begin station\n\tname=Zaragoza Orbital Shipyard',
+         'begin depot\n\tname=DP-9 Support Depot\n\trego=OP-DEPOT00\n\tclass=dp9\n\tlocationx=315\n\tlocationy=51\n\tfaction=magella\nend depot\n\nbegin station\n\tname=Zaragoza Orbital Shipyard'),
+    ],
+    'sector_leo.txt': [(1,
+         'begin station\n\tname=Columbus Ctrl. Trd.',
+         'begin depot\n\tname=DP-9 Support Depot\n\trego=OP-DEPOT01\n\tclass=dp9\n\tlocationx=104\n\tlocationy=235\n\tfaction=leon\nend depot\n\nbegin station\n\tname=Columbus Ctrl. Trd.'),
+    ],
+    'sector_maru.txt': [(1,
+         'begin station\n\tname=Angoda Giant Gasworks',
+         'begin depot\n\tname=DP-9 Support Depot\n\trego=OP-DEPOT02\n\tclass=dp9\n\tlocationx=284\n\tlocationy=-154\n\tfaction=leon\nend depot\n\nbegin station\n\tname=Angoda Giant Gasworks'),
+    ],
+    'sector_tega.txt': [(1,
+         'begin station\n\tname=Maskelyne Mining Station',
+         'begin depot\n\tname=DP-9 Support Depot\n\trego=OP-DEPOT03\n\tclass=dp9\n\tlocationx=292\n\tlocationy=-250\n\tfaction=tegan\nend depot\n\nbegin station\n\tname=Maskelyne Mining Station'),
+    ],
+    'sector_cansa.txt': [(1,
+         'begin station\n\tname=Sarni Agricultural',
+         'begin depot\n\tname=DP-9 Support Depot\n\trego=OP-DEPOT04\n\tclass=dp9\n\tlocationx=-192\n\tlocationy=388\n\tfaction=cansan\nend depot\n\nbegin station\n\tname=Sarni Agricultural'),
+    ],
+    'sector_diwali.txt': [(1,
+         'begin station\n\tname=Orai Station',
+         'begin depot\n\tname=DP-9 Support Depot\n\trego=OP-DEPOT05\n\tclass=dp9\n\tlocationx=-88\n\tlocationy=-105\n\tfaction=diwali\nend depot\n\nbegin station\n\tname=Orai Station'),
+    ],
+    'sector_galileo.txt': [(1,
+         'begin station\n\tname=Assayer Spaceport',
+         'begin depot\n\tname=DP-9 Support Depot\n\trego=OP-DEPOT06\n\tclass=dp9\n\tlocationx=-50\n\tlocationy=229\n\tfaction=magella\nend depot\n\nbegin station\n\tname=Assayer Spaceport'),
+    ],
+    'sector_carruthers.txt': [(1,
+         'begin station\n\tname=Hirayama Station',
+         'begin depot\n\tname=DP-9 Support Depot\n\trego=OP-DEPOT07\n\tclass=dp9\n\tlocationx=40\n\tlocationy=-98\n\tfaction=galilean\nend depot\n\nbegin station\n\tname=Hirayama Station'),
+    ],
+    'sector_sagan.txt': [(1,
+         'begin station\n\tname=Lagrange Port',
+         'begin depot\n\tname=DP-9 Support Depot\n\trego=OP-DEPOT08\n\tclass=dp9\n\tlocationx=-172\n\tlocationy=-167\n\tfaction=ulence\nend depot\n\nbegin station\n\tname=Lagrange Port'),
+    ],
+    'sector_parssus.txt': [(1,
+         'begin station\n\tname=Onega Industrial Exchange',
+         'begin depot\n\tname=DP-9 Support Depot\n\trego=OP-DEPOT09\n\tclass=dp9\n\tlocationx=58\n\tlocationy=-161\n\tfaction=parssus\nend depot\n\nbegin station\n\tname=Onega Industrial Exchange'),
+    ],
+    'sector_devass.txt': [(1,
+         'begin station\n\tname=Rolond Consortium',
+         'begin depot\n\tname=DP-9 Support Depot\n\trego=OP-DEPOT10\n\tclass=dp9\n\tlocationx=-297\n\tlocationy=127\nend depot\n\nbegin station\n\tname=Rolond Consortium'),
+    ],
+    'sector_twosisters.txt': [(1,
+         'begin station\n\tname=Etna Mining Outpost',
+         'begin depot\n\tname=DP-9 Support Depot\n\trego=OP-DEPOT11\n\tclass=dp9\n\tlocationx=22\n\tlocationy=187\n\tfaction=parssus\nend depot\n\nbegin station\n\tname=Etna Mining Outpost'),
+    ],
+}
+
+
 def personalise_module_emails(assets_dir, mod_dst_dir):
     """Returns the number of module emails rewritten."""
     assets_dir, mod_dst_dir = Path(assets_dir), Path(mod_dst_dir)

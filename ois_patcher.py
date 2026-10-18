@@ -2412,23 +2412,28 @@ CIV_VARIANT_TAG = "+civ"
 IFF_DEBUG_TAG = "+iffdbg"
 SPINUP_VARIANT_TAG = "+spin"
 MECH_VARIANT_TAG = "+mech"
+UI_VARIANT_TAG = "+ui"          # data-only: the exe is unchanged, the tag only lets --status tell
+DEPOT_VARIANT_TAG = "+dep"      # data-only, as above
 BASE_VERSION = PATCHER_VERSION
 PDS_VARIANT = False
 CIV_VARIANT = False
 IFF_DEBUG = False
 SPINUP_VARIANT = False
 MECH_VARIANT = False
+UI_VARIANT = False
+DEPOT_VARIANT = False
 
 
-def enable_variants(pds=False, civ=False, iff_debug=False, spinup=False, mech=False):
+def enable_variants(pds=False, civ=False, iff_debug=False, spinup=False, mech=False, ui=False, depots=False):
     """Selects the optional variants for this run and rebuilds the version string.
     The tags always come out in the same order, so the string is canonical."""
-    global PATCHER_VERSION, PDS_VARIANT, CIV_VARIANT, IFF_DEBUG, SPINUP_VARIANT, MECH_VARIANT
+    global PATCHER_VERSION, PDS_VARIANT, CIV_VARIANT, IFF_DEBUG, SPINUP_VARIANT, MECH_VARIANT, UI_VARIANT, DEPOT_VARIANT
     PDS_VARIANT, CIV_VARIANT, IFF_DEBUG, SPINUP_VARIANT = bool(pds), bool(civ), bool(iff_debug), bool(spinup)
-    MECH_VARIANT = bool(mech)
+    MECH_VARIANT, UI_VARIANT, DEPOT_VARIANT = bool(mech), bool(ui), bool(depots)
     PATCHER_VERSION = (BASE_VERSION + (PDS_VARIANT_TAG if PDS_VARIANT else "") + (CIV_VARIANT_TAG if CIV_VARIANT else "")
                        + (IFF_DEBUG_TAG if IFF_DEBUG else "") + (SPINUP_VARIANT_TAG if SPINUP_VARIANT else "")
-                       + (MECH_VARIANT_TAG if MECH_VARIANT else ""))
+                       + (MECH_VARIANT_TAG if MECH_VARIANT else "") + (UI_VARIANT_TAG if UI_VARIANT else "")
+                       + (DEPOT_VARIANT_TAG if DEPOT_VARIANT else ""))
 
 
 def variants_of(version):
@@ -2440,8 +2445,10 @@ def variants_of(version):
 def describe_variants(tags):
     names = {PDS_VARIANT_TAG: "PDS variant", CIV_VARIANT_TAG: "civilian-demands variant",
              IFF_DEBUG_TAG: "IFF debug logging", SPINUP_VARIANT_TAG: "weapon spin-up variant",
-             MECH_VARIANT_TAG: "mechanic armaments variant"}
-    found = [names[t] for t in (PDS_VARIANT_TAG, CIV_VARIANT_TAG, IFF_DEBUG_TAG, SPINUP_VARIANT_TAG, MECH_VARIANT_TAG) if t in tags]
+             MECH_VARIANT_TAG: "mechanic armaments variant", UI_VARIANT_TAG: "UI extras (data)",
+             DEPOT_VARIANT_TAG: "depots (data)"}
+    found = [names[t] for t in (PDS_VARIANT_TAG, CIV_VARIANT_TAG, IFF_DEBUG_TAG, SPINUP_VARIANT_TAG, MECH_VARIANT_TAG,
+                                UI_VARIANT_TAG, DEPOT_VARIANT_TAG) if t in tags]
     return " + ".join(found) if found else "standard build"
 
 
@@ -3508,8 +3515,13 @@ def install_mod(exe_path):
         return False
 
     print()
-    return apply_data_fixes.install(exe_path.parent, mod_src,
-                                    apply_data_fixes.MECHANIC_FIXES if MECH_VARIANT else None)
+    extra = {}
+    for wanted, fixes in ((MECH_VARIANT, apply_data_fixes.MECHANIC_FIXES), (UI_VARIANT, apply_data_fixes.UI_EXTRAS_FIXES),
+                          (DEPOT_VARIANT, apply_data_fixes.DEPOT_FIXES)):
+        if wanted:
+            for name, lines in fixes.items():
+                extra.setdefault(name, []).extend(lines)
+    return apply_data_fixes.install(exe_path.parent, mod_src, extra or None)
 
 
 # ============================================================
@@ -4057,7 +4069,7 @@ def print_status(game_dir):
         if status.state == STATE_PATCHED and status.version != PATCHER_VERSION:
             if variants_of(status.version):
                 print(f"  {'':<16} -> {describe_variants(variants_of(status.version))} installed; "
-                      f"re-run with the same --pds-everything / --civilians-comply / --debug-iff / --weapon-spinup-fix / --mechanic-armaments options to keep it")
+                      f"re-run with the same --pds-everything / --civilians-comply / --debug-iff / --weapon-spinup-fix / --mechanic-armaments / --ui-extras / --depots options to keep it")
             else:
                 print(f"  {'':<16} -> run this script with no arguments to update it to v{PATCHER_VERSION}")
     mod_dir = game_dir.joinpath(*MOD_DIR_RELATIVE)
@@ -4461,6 +4473,16 @@ def main():
                              "M-6 light torpedo and the TD-8 stellar probe (the game has both, but only the four "
                              "other armaments can be bought).  Needs the data files this script installs, so it also "
                              "changes the mechanic screen and the TD-8's price and heat-proofing.")
+    parser.add_argument("--ui-extras", action="store_true",
+                        help="OPTIONAL, data only: turns on screen features the game still implements but whose UI "
+                             "lines were commented out or never written -- the sensors AUTO button (keeps the most "
+                             "dangerous contact selected) on the Ceres, Proxima, Enceladus and Remora, and the depot "
+                             "buttons on the Enceladus docking screen (the Ceres and Proxima already have them).")
+    parser.add_argument("--depots", action="store_true",
+                        help="OPTIONAL, EXPERIMENTAL, data only: places a DP-9 depot (repair, rearm, countermeasures; the "
+                             "game has the station class and the screen buttons but no sector uses it) next to the first "
+                             "station of each of the twelve main systems.  Nothing in the game places depots, so this "
+                             "has not been seen working.")
     parser.add_argument("--uninstall", action="store_true",
                         help="Restore the original exe(s) from their .original-backup files "
                              "and remove the bugfix mod, then exit.")
@@ -4480,7 +4502,7 @@ def main():
                              "instead of deleting them after a verified restore.")
     args = parser.parse_args()
     enable_variants(pds=args.pds_everything, civ=args.civilians_comply, iff_debug=args.debug_iff, spinup=args.weapon_spinup_fix,
-                    mech=args.mechanic_armaments)
+                    mech=args.mechanic_armaments, ui=args.ui_extras, depots=args.depots)
 
     if args.list_installs:
         found = find_game_dirs()

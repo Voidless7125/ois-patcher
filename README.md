@@ -88,6 +88,8 @@ If you run `ois_patcher.py` from Command Prompt or PowerShell, you can pass thes
 | `py ois_patcher.py --debug-iff` | (this branch) Diagnostic: logs NPC IFF changes to the debug log. |
 | `py ois_patcher.py --weapon-spinup-fix` | (this branch) Weapon tube spin-up gets shorter with better parts instead of longer. |
 | `py ois_patcher.py --mechanic-armaments` | (this branch) The station mechanic also sells the M-6 light torpedo and the TD-8 stellar probe. |
+| `py ois_patcher.py --ui-extras` | (this branch, data only) Sensors AUTO button on every ship; depot buttons on the Enceladus docking screen. |
+| `py ois_patcher.py --depots` | (this branch, data only, experimental) Places a DP-9 depot next to the first station of each main system. |
 | `py ois_patcher.py --civilians-comply` | (this branch) Applies the civilian-demands variant described below. |
 
 ### Manual Uninstall (If Needed)
@@ -221,6 +223,28 @@ What it changes:
   file spells it `probestar`, so the "stellar survey probe" was never heat-proof.
 
 Selling pays half the base cost, so a TD-8 from Dr Reiffel now sells for 175. Not tested in the running game.
+
+### Optional, data only: screen features the game still has (`--ui-extras`, `--depots`)
+
+Neither changes the exe. Re-run with the same flags to keep them, like the other variants.
+
+**`--ui-extras`**
+- **Sensors AUTO button.** The commands `SENSOR_SET_AUTO` / `SENSOR_UNSET_AUTO` and the state `SENSORS_AUTO` are still in the exe,
+  and the UI lines were commented out in the Ceres, Enceladus and Remora files. While AUTO is on, the sensor screen keeps the
+  most dangerous contact selected (`getMostDangerousSensorObject`, "Auto-selected new object" in the debug log), and switching it on
+  turns off the LINK button's "keep the nav selection" flag. The commented-out lines sat on top of the LADAR button (Enceladus) or
+  inside the waveform display (the Ceres copy kept the Remora's row), so the button goes in the free space right of LADAR
+  (x=101) on every ship, including the Proxima, which uses the Ceres screens. `python tools/ui/check_extras.py <mod folder>`
+  checks that it overlaps nothing.
+- **Depot buttons on the Enceladus docking screen** (Repair Systems, Repair Hull, Buy CM, Buy Torpedo), copied from the
+  Ceres/Proxima screen, which already has them.
+
+**`--depots` (experimental).** A depot is a `DP-9 Depot` station class (`type=depot`, "a standard support platform containing
+repair drone systems") with a `begin depot` sector block, the docking-screen buttons above and the code behind them: hull repair
+(5 credits per repair point), module repair, countermeasure refill, and a rearm that fills empty torpedo tubes with M-10s.
+No sector file uses it, so the buttons never show. This flag places one depot, 25 Gm from the first listed station, in each of the
+twelve main systems (`OP-DEPOT00` to `OP-DEPOT11`). The depot loader does not read `emissionstrength` the way stations and
+jumpgates do, so whether a depot can be seen and docked with is a guess. Nothing in the stock game ever places one.
 
 ### Optional variant: a point-defence system that works (`--pds-everything`)
 
