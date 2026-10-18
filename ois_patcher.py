@@ -401,7 +401,7 @@ def add_ptch_section(data):
     sec_hdr_off = ptch_section.get_file_offset()
     pe2.close()
 
-    CAVE_FILE_SIZE = 0x1000 if (PDS_VARIANT or CIV_VARIANT or IFF_DEBUG or SPINUP_VARIANT) else 0x800   # the optional variants' caves need more room
+    CAVE_FILE_SIZE = 0x1000 if (PDS_VARIANT or CIV_VARIANT or IFF_DEBUG or SPINUP_VARIANT or MECH_VARIANT) else 0x800   # the optional variants' caves need more room
     new_raw_data_offset = len(data)
     if new_raw_data_offset % file_align != 0:
         data.extend(b"\x00" * (file_align - (new_raw_data_offset % file_align)))
@@ -2411,20 +2411,24 @@ PDS_VARIANT_TAG = "+pds"
 CIV_VARIANT_TAG = "+civ"
 IFF_DEBUG_TAG = "+iffdbg"
 SPINUP_VARIANT_TAG = "+spin"
+MECH_VARIANT_TAG = "+mech"
 BASE_VERSION = PATCHER_VERSION
 PDS_VARIANT = False
 CIV_VARIANT = False
 IFF_DEBUG = False
 SPINUP_VARIANT = False
+MECH_VARIANT = False
 
 
-def enable_variants(pds=False, civ=False, iff_debug=False, spinup=False):
+def enable_variants(pds=False, civ=False, iff_debug=False, spinup=False, mech=False):
     """Selects the optional variants for this run and rebuilds the version string.
     The tags always come out in the same order, so the string is canonical."""
-    global PATCHER_VERSION, PDS_VARIANT, CIV_VARIANT, IFF_DEBUG, SPINUP_VARIANT
+    global PATCHER_VERSION, PDS_VARIANT, CIV_VARIANT, IFF_DEBUG, SPINUP_VARIANT, MECH_VARIANT
     PDS_VARIANT, CIV_VARIANT, IFF_DEBUG, SPINUP_VARIANT = bool(pds), bool(civ), bool(iff_debug), bool(spinup)
+    MECH_VARIANT = bool(mech)
     PATCHER_VERSION = (BASE_VERSION + (PDS_VARIANT_TAG if PDS_VARIANT else "") + (CIV_VARIANT_TAG if CIV_VARIANT else "")
-                       + (IFF_DEBUG_TAG if IFF_DEBUG else "") + (SPINUP_VARIANT_TAG if SPINUP_VARIANT else ""))
+                       + (IFF_DEBUG_TAG if IFF_DEBUG else "") + (SPINUP_VARIANT_TAG if SPINUP_VARIANT else "")
+                       + (MECH_VARIANT_TAG if MECH_VARIANT else ""))
 
 
 def variants_of(version):
@@ -2435,8 +2439,9 @@ def variants_of(version):
 
 def describe_variants(tags):
     names = {PDS_VARIANT_TAG: "PDS variant", CIV_VARIANT_TAG: "civilian-demands variant",
-             IFF_DEBUG_TAG: "IFF debug logging", SPINUP_VARIANT_TAG: "weapon spin-up variant"}
-    found = [names[t] for t in (PDS_VARIANT_TAG, CIV_VARIANT_TAG, IFF_DEBUG_TAG, SPINUP_VARIANT_TAG) if t in tags]
+             IFF_DEBUG_TAG: "IFF debug logging", SPINUP_VARIANT_TAG: "weapon spin-up variant",
+             MECH_VARIANT_TAG: "mechanic armaments variant"}
+    found = [names[t] for t in (PDS_VARIANT_TAG, CIV_VARIANT_TAG, IFF_DEBUG_TAG, SPINUP_VARIANT_TAG, MECH_VARIANT_TAG) if t in tags]
     return " + ".join(found) if found else "standard build"
 
 
@@ -3030,6 +3035,112 @@ def fix_weapon_spinup(data, pe, ptch_va, ptch_off, cave_cursor, server=False):
 
 
 # ============================================================
+# OPTIONAL VARIANT (--mechanic-armaments): the station mechanic's Armaments tab also sells the
+# M-6 light torpedo and the TD-8 stellar probe.
+#
+# weapons.txt defines six launchable armaments (m10, m12, e10, td4, m6, td8) but the mechanic only
+# knows four: ShipInterface::doMechanicBuyArmament, TradeEngine::canBuyArmament,
+# ShipData::checkMechanicCanBuyArmament and TradeEngine::getArmamentStatus all index one
+# 4-entry table of weapon ids in .rdata (m10, m12, e10, td4, followed by unrelated data), and the
+# screen (ui_x7.txt, "Mechanix") has a button for each of those four and no more.  The M-6 is only
+# ever fitted to NPC pirates; the TD-8 is only handed out by Dr Reiffel's quest (addweapon=td8).
+#
+# The table cannot grow in place, and a table of absolute pointers in the added section would need
+# base-relocation entries (the game does not load at its preferred base).  So the four indexed loads
+# are redirected to caves that compute the address position-independently (CALL $+5 / POP) from a
+# table of six 4-byte ids appended to the cave, and keep every other register and the flags as the
+# original load left them:
+#       push [idx*4+T]    ->   PUSH EAX / CALL $+5 / POP EAX / LEA EAX,[EAX+idx*4+delta] / XCHG EAX,[ESP]
+#       mov  r,[idx*4+T]  ->   (CALL $+5 / POP r / LEA r,[r+idx*4+delta], via EAX when r is the index)
+# getArmamentStatus lists one line per armament and then the countermeasure line, which it recognises
+# by index 4 and loops up to; both constants become 6 so the two new ids are listed first.
+# The matching data fixes (the two buttons, a price for the TD-8, the TD-8's heat-proofing flag) are
+# installed together with this patch; without them the new indices are never asked for.
+# ============================================================
+
+MECH_IDS = (b"m10\0", b"m12\0", b"e10\0", b"td4\0", b"m6\0\0", b"td8\0")
+
+
+def fix_mechanic_armaments(data, pe, ptch_va, ptch_off, cave_cursor, server=False):
+    label = "Mechanic: M-6 torpedo and TD-8 probe can be bought (optional variant)" + (" (server)" if server else "")
+    applied, skipped = _fix_lists(server)
+
+    if server:
+        TABLE = 0x005DD9F4
+        # (instruction, kind, index register, destination register); all are 7 bytes: opcode, modrm, SIB, disp32
+        SITES = ((0x00494CC0, "push", "ebx", None),    # TradeEngine::canBuyArmament
+                 (0x0049517D, "mov", "edi", "ebx"),    # TradeEngine::getArmamentStatus
+                 (0x004D72B6, "push", "ebx", None),    # ShipData::checkMechanicCanBuyArmament
+                 (0x004E9067, "mov", "esi", "esi"))    # ShipInterface::doMechanicBuyArmament
+        CM_CMP, LOOP_CMP = 0x00495107, 0x00495249      # `cmp edi,4` (countermeasure line) and the loop's `cmp edi,4 / jle`
+    else:
+        TABLE = 0x005DFACC
+        SITES = ((0x00494E30, "push", "ebx", None),
+                 (0x004952ED, "mov", "edi", "ebx"),
+                 (0x004D74D6, "push", "ebx", None),
+                 (0x004E95F7, "mov", "esi", "esi"))
+        CM_CMP, LOOP_CMP = 0x00495277, 0x004953B9
+    REG = {"eax": 0, "ebx": 3, "esi": 6, "edi": 7}
+    tbl_le = struct.pack("<I", TABLE)
+    STOCK = {("push", "ebx"): bytes.fromhex("FF349D") + tbl_le,
+             ("mov", "edi"): bytes.fromhex("8B1CBD") + tbl_le,      # mov ebx,[edi*4+T]
+             ("mov", "esi"): bytes.fromhex("8B34B5") + tbl_le}      # mov esi,[esi*4+T]
+
+    for site, kind, idx, dst in SITES:
+        if verify_site(data, pe, site, STOCK[(kind, idx)], label + f" (table load at {site:#x})") is None:
+            return bail(label, cave_cursor, server)
+    for at, tail in ((CM_CMP, bytes.fromhex("75")), (LOOP_CMP, bytes.fromhex("0F8E"))):
+        if verify_site(data, pe, at, bytes.fromhex("83FF04") + tail, label + f" (index compare at {at:#x})") is None:
+            return bail(label, cave_cursor, server)
+    for i, ident in enumerate(MECH_IDS[:4]):                  # the stock table really is m10, m12, e10, td4
+        ptr = struct.unpack_from("<I", data, va_to_offset(pe, TABLE + 4 * i))[0]
+        if verify_site(data, pe, ptr, ident, label + " (stock table)") is None:
+            return bail(label, cave_cursor, server)
+
+    table_va = ptch_va + cave_cursor
+    blob = bytearray(b"".join(MECH_IDS))
+    here = table_va + len(blob)
+
+    def lea(reg, idx_reg, delta):
+        # LEA reg,[reg + idx*4 + disp32]
+        return bytes([0x8D, 0x80 | (REG[reg] << 3) | 4, 0x80 | (REG[idx_reg] << 3) | REG[reg]]) + struct.pack("<i", delta)
+
+    for site, kind, idx, dst in SITES:
+        c = bytearray()
+        if kind == "push":
+            c += b"\x50"                                      # PUSH EAX
+            c += bytes.fromhex("E800000000" "58")              # CALL $+5 ; POP EAX      (EAX = address of the POP)
+            pop_va = here + len(c) - 1
+            c += lea("eax", idx, table_va - pop_va)            # EAX = table + idx*4
+            c += bytes.fromhex("870424")                       # XCHG EAX,[ESP]          (EAX restored, id pointer pushed)
+        elif dst != idx:
+            c += bytes.fromhex("E800000000") + bytes([0x58 | REG[dst]])
+            pop_va = here + len(c) - 1
+            c += lea(dst, idx, table_va - pop_va)
+        else:                                                  # destination is also the index: work in EAX
+            c += b"\x50"
+            c += bytes.fromhex("E800000000" "58")
+            pop_va = here + len(c) - 1
+            c += lea("eax", idx, table_va - pop_va)
+            c += bytes([0x89, 0xC0 | (0 << 3) | REG[dst]])     # MOV dst,EAX
+            c += b"\x58"                                       # POP EAX
+        c += b"\xE9" + struct.pack("<i", (site + 7) - (here + len(c) + 5))
+        neutralize_relocations(data, pe, site, 7, label)
+        off = va_to_offset(pe, site)
+        data[off:off + 7] = b"\xE9" + struct.pack("<i", here - (site + 5)) + b"\x90\x90"
+        blob += c
+        here = table_va + len(blob)
+    data[ptch_off + cave_cursor: ptch_off + cave_cursor + len(blob)] = blob
+    cave_cursor += len(blob)
+
+    for at in (CM_CMP, LOOP_CMP):                              # the countermeasure line moves from index 4 to 6
+        data[va_to_offset(pe, at) + 2] = 6
+    print(f"  [OK] {label}")
+    applied.append(label)
+    return cave_cursor
+
+
+# ============================================================
 # Fix 33: some NPC ships turn up with their IFF off ("Unknown" in red on the nav map) and
 # "Turning my reactors off" in the debug log, on some machines and not on others -- Leslie
 # Garbut's SS Jolly Rancher in the intro, for one.  ShipBehaviour (0x164 bytes, allocated
@@ -3336,6 +3447,8 @@ def patch_server_exe(exe_path):
         cave_cursor = fix_civilians_comply(data, pe, ptch_va, ptch_off, cave_cursor, server=True)
     if SPINUP_VARIANT:
         cave_cursor = fix_weapon_spinup(data, pe, ptch_va, ptch_off, cave_cursor, server=True)
+    if MECH_VARIANT:
+        cave_cursor = fix_mechanic_armaments(data, pe, ptch_va, ptch_off, cave_cursor, server=True)
     cave_cursor = fix_power_drain_modifier(data, pe, ptch_va, ptch_off, cave_cursor, server=True)
     cave_cursor = fix_autopilot_overshoot(data, pe, ptch_va, ptch_off, cave_cursor, server=True)
     cave_cursor = fix_autopilot_cruise_burn(data, pe, ptch_va, ptch_off, cave_cursor, server=True)
@@ -3395,7 +3508,8 @@ def install_mod(exe_path):
         return False
 
     print()
-    return apply_data_fixes.install(exe_path.parent, mod_src)
+    return apply_data_fixes.install(exe_path.parent, mod_src,
+                                    apply_data_fixes.MECHANIC_FIXES if MECH_VARIANT else None)
 
 
 # ============================================================
@@ -3943,7 +4057,7 @@ def print_status(game_dir):
         if status.state == STATE_PATCHED and status.version != PATCHER_VERSION:
             if variants_of(status.version):
                 print(f"  {'':<16} -> {describe_variants(variants_of(status.version))} installed; "
-                      f"re-run with the same --pds-everything / --civilians-comply / --debug-iff / --weapon-spinup-fix options to keep it")
+                      f"re-run with the same --pds-everything / --civilians-comply / --debug-iff / --weapon-spinup-fix / --mechanic-armaments options to keep it")
             else:
                 print(f"  {'':<16} -> run this script with no arguments to update it to v{PATCHER_VERSION}")
     mod_dir = game_dir.joinpath(*MOD_DIR_RELATIVE)
@@ -4342,6 +4456,11 @@ def main():
                              "rule every other timer uses).  Stock multiplies by the efficiency instead, so "
                              "better parts make torpedoes spin up slower.  Changes balance: spin-up times drop "
                              "to roughly a third.")
+    parser.add_argument("--mechanic-armaments", action="store_true",
+                        help="OPTIONAL VARIANT, not a bug fix: the station mechanic's Armaments tab also sells the "
+                             "M-6 light torpedo and the TD-8 stellar probe (the game has both, but only the four "
+                             "other armaments can be bought).  Needs the data files this script installs, so it also "
+                             "changes the mechanic screen and the TD-8's price and heat-proofing.")
     parser.add_argument("--uninstall", action="store_true",
                         help="Restore the original exe(s) from their .original-backup files "
                              "and remove the bugfix mod, then exit.")
@@ -4360,7 +4479,8 @@ def main():
                         help="With --uninstall, leave the .original-backup files in place "
                              "instead of deleting them after a verified restore.")
     args = parser.parse_args()
-    enable_variants(pds=args.pds_everything, civ=args.civilians_comply, iff_debug=args.debug_iff, spinup=args.weapon_spinup_fix)
+    enable_variants(pds=args.pds_everything, civ=args.civilians_comply, iff_debug=args.debug_iff, spinup=args.weapon_spinup_fix,
+                    mech=args.mechanic_armaments)
 
     if args.list_installs:
         found = find_game_dirs()
@@ -4501,6 +4621,8 @@ def main():
         cave_cursor = fix_iff_debug(data, pe, ptch_va, ptch_off, cave_cursor)
     if SPINUP_VARIANT:
         cave_cursor = fix_weapon_spinup(data, pe, ptch_va, ptch_off, cave_cursor)
+    if MECH_VARIANT:
+        cave_cursor = fix_mechanic_armaments(data, pe, ptch_va, ptch_off, cave_cursor)
     cave_cursor = fix_power_drain_modifier(data, pe, ptch_va, ptch_off, cave_cursor)
     fix_terminal_power_units(data, pe)
     cave_cursor = fix_forced_conversation_first_option(data, pe, ptch_va, ptch_off, cave_cursor)

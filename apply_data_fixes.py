@@ -454,6 +454,50 @@ _GENERIC_EMAIL_OPENING = re.compile(
     r"^(Thank you for purchasing|Congratulations on purchasing) this ([^!.^]+?)([!.])")
 
 
+# Data half of the optional --mechanic-armaments variant (ois_patcher.fix_mechanic_armaments).  Only
+# installed together with that exe patch: the two new buttons ask the mechanic for armament indices
+# 4 and 5, which a stock exe does not have.  The buttons are moved up (pitch 12, first at y=140) to
+# make room for two more; the armament list above them is one line per armament.
+# The TD-8's price is this project's own number (the game ships it with none, i.e. free);
+# `canprobestar` is the key the game really reads (weapons.txt spells it `probestar`, which nothing
+# reads): the probe ignores HEAT damage, which is what makes it a *stellar* probe.
+MECHANIC_FIXES = {
+    "ui_x7.txt": [
+        (1, "    button=168,148,134,`9Buy Countermeasure,MECHANIC_BUYARMAMENT:-1,MECHANIC_CAN_BUY_ARMAMENT:-1",
+            "    button=168,140,134,`9Buy Countermeasure,MECHANIC_BUYARMAMENT:-1,MECHANIC_CAN_BUY_ARMAMENT:-1"),
+        (1, "    greyedbutton=168,148,134,Buy Countermeasure,NONE,MECHANIC_CANNOT_BUY_ARMAMENT:-1",
+            "    greyedbutton=168,140,134,Buy Countermeasure,NONE,MECHANIC_CANNOT_BUY_ARMAMENT:-1"),
+        (1, "    button=168,161,134,`!Sell Armament,MECHANIC_SELLARMAMENT,MECHANIC_CAN_SELL_ARMAMENT",
+            "    button=168,152,134,`!Sell Armament,MECHANIC_SELLARMAMENT,MECHANIC_CAN_SELL_ARMAMENT"),
+        (1, "    greyedbutton=168,161,134,Sell Armament,NONE,MECHANIC_CANNOT_SELL_ARMAMENT",
+            "    greyedbutton=168,152,134,Sell Armament,NONE,MECHANIC_CANNOT_SELL_ARMAMENT"),
+        (1, "    button=168,174,134,`$E-10 EMP Torpedo,MECHANIC_BUYARMAMENT:2,MECHANIC_CAN_BUY_ARMAMENT:2",
+            "    button=168,164,134,`$E-10 EMP Torpedo,MECHANIC_BUYARMAMENT:2,MECHANIC_CAN_BUY_ARMAMENT:2"),
+        (1, "    greyedbutton=168,174,134,E-10 EMP Torpedo,NONE,MECHANIC_CANNOT_BUY_ARMAMENT:2",
+            "    greyedbutton=168,164,134,E-10 EMP Torpedo,NONE,MECHANIC_CANNOT_BUY_ARMAMENT:2"),
+        (1, "    button=168,187,134,`^M-12 Heavy Torpedo,MECHANIC_BUYARMAMENT:1,MECHANIC_CAN_BUY_ARMAMENT:1",
+            "    button=168,176,134,`^M-12 Heavy Torpedo,MECHANIC_BUYARMAMENT:1,MECHANIC_CAN_BUY_ARMAMENT:1"),
+        (1, "    greyedbutton=168,187,134,M-12 Heavy Torpedo,NONE,MECHANIC_CANNOT_BUY_ARMAMENT:1",
+            "    greyedbutton=168,176,134,M-12 Heavy Torpedo,NONE,MECHANIC_CANNOT_BUY_ARMAMENT:1"),
+        (1, "    button=168,200,134,`^M-10 Medium Torpedo,MECHANIC_BUYARMAMENT:0,MECHANIC_CAN_BUY_ARMAMENT:0",
+            "    button=168,188,134,`^M-10 Medium Torpedo,MECHANIC_BUYARMAMENT:0,MECHANIC_CAN_BUY_ARMAMENT:0"),
+        (1, "    greyedbutton=168,200,134,M-10 Medium Torpedo,NONE,MECHANIC_CANNOT_BUY_ARMAMENT:0",
+            "    greyedbutton=168,188,134,M-10 Medium Torpedo,NONE,MECHANIC_CANNOT_BUY_ARMAMENT:0"),
+        (1, "    button=168,213,134,`!TD-4 Science Probe,MECHANIC_BUYARMAMENT:3,MECHANIC_CAN_BUY_ARMAMENT:3",
+            "    button=168,200,134,`!TD-4 Science Probe,MECHANIC_BUYARMAMENT:3,MECHANIC_CAN_BUY_ARMAMENT:3"),
+        (1, "    greyedbutton=168,213,134,TD-4 Science Probe,NONE,MECHANIC_CANNOT_BUY_ARMAMENT:3",
+            "    greyedbutton=168,200,134,TD-4 Science Probe,NONE,MECHANIC_CANNOT_BUY_ARMAMENT:3\n"
+            "    button=168,212,134,`^M-6 Light Torpedo,MECHANIC_BUYARMAMENT:4,MECHANIC_CAN_BUY_ARMAMENT:4\n"
+            "    greyedbutton=168,212,134,M-6 Light Torpedo,NONE,MECHANIC_CANNOT_BUY_ARMAMENT:4\n"
+            "    button=168,224,134,`!TD-8 Stellar Probe,MECHANIC_BUYARMAMENT:5,MECHANIC_CAN_BUY_ARMAMENT:5\n"
+            "    greyedbutton=168,224,134,TD-8 Stellar Probe,NONE,MECHANIC_CANNOT_BUY_ARMAMENT:5"),
+    ],
+    "weapons.txt": [
+        (1, "probestar=true", "probestar=true\ncanprobestar=true\nbasecost=350"),
+    ],
+}
+
+
 def personalise_module_emails(assets_dir, mod_dst_dir):
     """Returns the number of module emails rewritten."""
     assets_dir, mod_dst_dir = Path(assets_dir), Path(mod_dst_dir)
@@ -548,7 +592,7 @@ def apply_inplace(assets_dir, backup_dir):
     return applied, skipped
 
 
-def apply_all(assets_dir, mod_dst_dir):
+def apply_all(assets_dir, mod_dst_dir, extra_fixes=None):
     """Reads each affected file from `assets_dir` (the user's own game
     install), applies the verified line fixes, and writes the result into
     `mod_dst_dir`. Returns (applied_count, skipped_count)."""
@@ -556,8 +600,12 @@ def apply_all(assets_dir, mod_dst_dir):
     mod_dst_dir = Path(mod_dst_dir)
     mod_dst_dir.mkdir(parents=True, exist_ok=True)
 
+    fixes = {name: list(lines) for name, lines in FIXES.items()}
+    for name, lines in (extra_fixes or {}).items():        # optional variants add their own lines
+        fixes.setdefault(name, []).extend(lines)
+
     applied, skipped = 0, 0
-    for filename, line_fixes in FIXES.items():
+    for filename, line_fixes in fixes.items():
         if is_inplace(filename):
             continue          # handled by apply_inplace(); the mod system cannot override these
         src = assets_dir / filename
@@ -592,7 +640,7 @@ def apply_all(assets_dir, mod_dst_dir):
     return applied, skipped
 
 
-def install(game_root, bundled_mod_dir):
+def install(game_root, bundled_mod_dir, extra_fixes=None):
     """Full mod install: copies this project's own modinfo.txt as-is
     (it's original content, not derived from the game), then generates
     every data fix from the user's own assets/ folder. `game_root` is the
@@ -619,7 +667,7 @@ def install(game_root, bundled_mod_dir):
     mod_dst.mkdir(parents=True)
     shutil.copy2(modinfo_src, mod_dst / "modinfo.txt")
 
-    applied, skipped = apply_all(assets_dir, mod_dst)
+    applied, skipped = apply_all(assets_dir, mod_dst, extra_fixes)
     a2, s2 = apply_inplace(assets_dir, game_root / ORIGINALS_DIRNAME)
     applied, skipped = applied + a2, skipped + s2
 

@@ -87,6 +87,7 @@ If you run `ois_patcher.py` from Command Prompt or PowerShell, you can pass thes
 | `py ois_patcher.py --pds-everything` | (this branch) Applies the point-defence variant described below. |
 | `py ois_patcher.py --debug-iff` | (this branch) Diagnostic: logs NPC IFF changes to the debug log. |
 | `py ois_patcher.py --weapon-spinup-fix` | (this branch) Weapon tube spin-up gets shorter with better parts instead of longer. |
+| `py ois_patcher.py --mechanic-armaments` | (this branch) The station mechanic also sells the M-6 light torpedo and the TD-8 stellar probe. |
 | `py ois_patcher.py --civilians-comply` | (this branch) Applies the civilian-demands variant described below. |
 
 ### Manual Uninstall (If Needed)
@@ -159,7 +160,7 @@ they are gameplay changes or fixes the upstream maintainer has not accepted.
 - **`--debug-iff`** (diagnostic, off by default): logs every change of an NPC ship's IFF flag to the debug
   log as `IFFDBG <ship>: IFF <old> -> <new>, changed inside|outside the AI update`. Used to find out why some
   ships (e.g. Leslie Garbut's SS Jolly Rancher in the intro) arrive with their IFF off (`tools/iffdebug/`).
-- **`--weapon-spinup-fix`** (optional, off by default): described below.
+- **`--weapon-spinup-fix`** and **`--mechanic-armaments`** (optional, off by default): described below.
 - **`--pds-everything`** and **`--civilians-comply`**: optional flags, described below. Without
   `--pds-everything` this branch applies the same point-defence fix as `master`; with it, the variant
   below replaces that fix.
@@ -193,6 +194,33 @@ must agree, so each one's call to `getEfficiencyPercent` goes through one 13-byt
 | SPL-9S | 8 | 20 | 14 -> 5 | 15 -> 4 |
 
 Efficiency of 200% or more would make the figure zero or negative; no weapons module reaches that with legal parts.
+
+### Optional variant: the mechanic sells the M-6 and the TD-8 (`--mechanic-armaments`)
+
+**Not a bug fix, off by default.** `weapons.txt` defines six launchable armaments (M-10, M-12, E-10, TD-4,
+M-6, TD-8) but the station mechanic's Armaments tab only knows four. The game's own code indexes a four-entry
+table of weapon ids, and the screen has one button per entry. The M-6 ("a small missile often used by
+pirates") is only ever fitted to NPC ships; the TD-8 is only handed out by Dr Reiffel's quest. This variant
+adds both to the Armaments tab and to the list of prices above its buttons.
+
+```
+python ois_patcher.py --mechanic-armaments
+python tools/mech/test_mech.py <game dir>/ois.exe
+```
+
+What it changes:
+
+- **Exe (client and server):** the four instructions that index the id table are redirected to caves that
+  look the id up in a six-entry table, computed position-independently (the game does not load at its
+  preferred base, so a table of absolute pointers would need relocations). The countermeasure line in the
+  armament list, recognised by index 4, moves to index 6.
+- **`ui_x7.txt`:** the "Mechanix" screen gets two buttons, and its armament buttons move up to make room
+  (pitch 12, first one at y=140).
+- **`weapons.txt`:** the TD-8 gets a price (**350**; this project's own number, the game ships it with none)
+  and `canprobestar=true`. The game reads `canprobestar`, which makes a probe ignore heat damage, but the
+  file spells it `probestar`, so the "stellar survey probe" was never heat-proof.
+
+Selling pays half the base cost, so a TD-8 from Dr Reiffel now sells for 175. Not tested in the running game.
 
 ### Optional variant: a point-defence system that works (`--pds-everything`)
 
