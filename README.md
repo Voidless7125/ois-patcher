@@ -238,6 +238,10 @@ Neither changes the exe. Re-run with the same flags to keep them, like the other
   checks that it overlaps nothing.
 - **Depot buttons on the Enceladus docking screen** (Repair Systems, Repair Hull, Buy CM, Buy Torpedo), copied from the
   Ceres/Proxima screen, which already has them.
+- **Dev scenarios.** `scenarios.txt` has seven `#include` lines the developers switched off: `quickstart` (the main scenario past
+  the tutorial in an Enceladus), `combatceres`, `combatenceladus`, `combathard` (the "Stress Test", 8 pirates),
+  `testmulti` (two-ship multiplayer test) and `coop_escort_3` / `coop_escort_4` (the stock fix for its stray `X` is already part of this tool). All
+  the files ship with the game; this just includes them. They are dev content and never had a release pass, so expect rough edges.
 
 **`--depots` (experimental).** A depot is a `DP-9 Depot` station class (`type=depot`, "a standard support platform containing
 repair drone systems") with a `begin depot` sector block, the docking-screen buttons above and the code behind them: hull repair

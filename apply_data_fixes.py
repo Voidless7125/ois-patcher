@@ -507,6 +507,8 @@ MECHANIC_FIXES = {
 #    copy kept the Remora's row), which is probably why they were switched off; the button goes in the free
 #    space right of LADAR on each screen's button row instead.
 # 2. The Enceladus docking screen gets the depot block the Ceres/Proxima screen (c_docking) already has.
+# 3. The scenarios the developers left commented out of scenarios.txt: quickstart, combatceres,
+#    combatenceladus, combathard (stress test), testmulti, coop_escort_3 and coop_escort_4.
 UI_EXTRAS_FIXES = {
     "ui_ceres.txt": [
         (1, "#button=65,96,30,`$AUTO,SENSOR_UNSET_AUTO,SENSORS_AUTO\n"
@@ -535,6 +537,16 @@ UI_EXTRAS_FIXES = {
             "\n"
             "    button=158,146,88,`$BUY TORPEDO,REARM_AT_DEPOT,CAN_REARM_AT_DEPOT\n"
             "    greyedbutton=158,146,88,BUY TORPEDO,NONE,CANNOT_REARM_AT_DEPOT"),
+    ],
+    # 3. Dev scenarios the developers commented out of scenarios.txt (their files ship with the game).
+    "scenarios.txt": [
+        (1, "\n#include quickstart.txt", "\ninclude quickstart.txt"),
+        (1, "\n#include combatceres.txt", "\ninclude combatceres.txt"),
+        (1, "\n#include combatenceladus.txt", "\ninclude combatenceladus.txt"),
+        (1, "\n#include combathard.txt", "\ninclude combathard.txt"),
+        (1, "\n#include testmulti.txt", "\ninclude testmulti.txt"),
+        (1, "\n#include coop_escort_3.txt", "\ninclude coop_escort_3.txt"),
+        (1, "\n#include coop_escort_4.txt", "\ninclude coop_escort_4.txt"),
     ],
     "ui_remora.txt": [
         (1, "#button=65,96,30,`$AUTO,SENSOR_UNSET_AUTO,SENSORS_AUTO\n"

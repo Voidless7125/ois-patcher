@@ -4477,7 +4477,9 @@ def main():
                         help="OPTIONAL, data only: turns on screen features the game still implements but whose UI "
                              "lines were commented out or never written -- the sensors AUTO button (keeps the most "
                              "dangerous contact selected) on the Ceres, Proxima, Enceladus and Remora, and the depot "
-                             "buttons on the Enceladus docking screen (the Ceres and Proxima already have them).")
+                             "buttons on the Enceladus docking screen (the Ceres and Proxima already have them).  Also "
+                             "re-enables the scenarios commented out of scenarios.txt (quickstart, combat, stress "
+                             "test, multiplayer test, escort 3 and 4).")
     parser.add_argument("--depots", action="store_true",
                         help="OPTIONAL, EXPERIMENTAL, data only: places a DP-9 depot (repair, rearm, countermeasures; the "
                              "game has the station class and the screen buttons but no sector uses it) next to the first "
