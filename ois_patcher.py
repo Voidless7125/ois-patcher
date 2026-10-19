@@ -199,7 +199,7 @@ SERVER_FIXES_SKIPPED = []
 # upgrade", instead of one generic message either way.
 PATCHER_VERSION = "0.4.1"
 VERSION_MARKER_PREFIX = b"OISPATCH:"
-VERSION_MARKER_SIZE = 48  # reserved bytes at the start of .ptch's raw data
+VERSION_MARKER_SIZE = 64  # reserved bytes at the start of .ptch's raw data
 
 
 def load_pe(data):
@@ -401,7 +401,7 @@ def add_ptch_section(data):
     sec_hdr_off = ptch_section.get_file_offset()
     pe2.close()
 
-    CAVE_FILE_SIZE = 0x1000 if (PDS_VARIANT or CIV_VARIANT or IFF_DEBUG or SPINUP_VARIANT or MECH_VARIANT) else 0x800   # the optional variants' caves need more room
+    CAVE_FILE_SIZE = 0x1000 if (PDS_VARIANT or CIV_VARIANT or IFF_DEBUG or SPINUP_VARIANT or MECH_VARIANT or HAIL_VARIANT) else 0x800   # the optional variants' caves need more room
     new_raw_data_offset = len(data)
     if new_raw_data_offset % file_align != 0:
         data.extend(b"\x00" * (file_align - (new_raw_data_offset % file_align)))
@@ -2414,6 +2414,8 @@ SPINUP_VARIANT_TAG = "+spin"
 MECH_VARIANT_TAG = "+mech"
 UI_VARIANT_TAG = "+ui"          # data-only: the exe is unchanged, the tag only lets --status tell
 DEPOT_VARIANT_TAG = "+dep"      # data-only, as above
+HAIL_VARIANT_TAG = "+hail"
+NEWS_VARIANT_TAG = "+news"      # data-only (the news files are edited in place), as above
 BASE_VERSION = PATCHER_VERSION
 PDS_VARIANT = False
 CIV_VARIANT = False
@@ -2422,18 +2424,23 @@ SPINUP_VARIANT = False
 MECH_VARIANT = False
 UI_VARIANT = False
 DEPOT_VARIANT = False
+HAIL_VARIANT = False
+NEWS_VARIANT = False
 
 
-def enable_variants(pds=False, civ=False, iff_debug=False, spinup=False, mech=False, ui=False, depots=False):
+def enable_variants(pds=False, civ=False, iff_debug=False, spinup=False, mech=False, ui=False, depots=False,
+                    hail=False, news=False):
     """Selects the optional variants for this run and rebuilds the version string.
     The tags always come out in the same order, so the string is canonical."""
-    global PATCHER_VERSION, PDS_VARIANT, CIV_VARIANT, IFF_DEBUG, SPINUP_VARIANT, MECH_VARIANT, UI_VARIANT, DEPOT_VARIANT
+    global PATCHER_VERSION, PDS_VARIANT, CIV_VARIANT, IFF_DEBUG, SPINUP_VARIANT, MECH_VARIANT, UI_VARIANT, DEPOT_VARIANT, HAIL_VARIANT, NEWS_VARIANT
     PDS_VARIANT, CIV_VARIANT, IFF_DEBUG, SPINUP_VARIANT = bool(pds), bool(civ), bool(iff_debug), bool(spinup)
     MECH_VARIANT, UI_VARIANT, DEPOT_VARIANT = bool(mech), bool(ui), bool(depots)
+    HAIL_VARIANT, NEWS_VARIANT = bool(hail), bool(news)
     PATCHER_VERSION = (BASE_VERSION + (PDS_VARIANT_TAG if PDS_VARIANT else "") + (CIV_VARIANT_TAG if CIV_VARIANT else "")
                        + (IFF_DEBUG_TAG if IFF_DEBUG else "") + (SPINUP_VARIANT_TAG if SPINUP_VARIANT else "")
                        + (MECH_VARIANT_TAG if MECH_VARIANT else "") + (UI_VARIANT_TAG if UI_VARIANT else "")
-                       + (DEPOT_VARIANT_TAG if DEPOT_VARIANT else ""))
+                       + (DEPOT_VARIANT_TAG if DEPOT_VARIANT else "") + (HAIL_VARIANT_TAG if HAIL_VARIANT else "")
+                       + (NEWS_VARIANT_TAG if NEWS_VARIANT else ""))
 
 
 def variants_of(version):
@@ -2446,9 +2453,9 @@ def describe_variants(tags):
     names = {PDS_VARIANT_TAG: "PDS variant", CIV_VARIANT_TAG: "civilian-demands variant",
              IFF_DEBUG_TAG: "IFF debug logging", SPINUP_VARIANT_TAG: "weapon spin-up variant",
              MECH_VARIANT_TAG: "mechanic armaments variant", UI_VARIANT_TAG: "UI extras (data)",
-             DEPOT_VARIANT_TAG: "depots (data)"}
+             DEPOT_VARIANT_TAG: "depots (data)", HAIL_VARIANT_TAG: "hail guard", NEWS_VARIANT_TAG: "local news (data)"}
     found = [names[t] for t in (PDS_VARIANT_TAG, CIV_VARIANT_TAG, IFF_DEBUG_TAG, SPINUP_VARIANT_TAG, MECH_VARIANT_TAG,
-                                UI_VARIANT_TAG, DEPOT_VARIANT_TAG) if t in tags]
+                                UI_VARIANT_TAG, DEPOT_VARIANT_TAG, HAIL_VARIANT_TAG, NEWS_VARIANT_TAG) if t in tags]
     return " + ".join(found) if found else "standard build"
 
 
@@ -3163,6 +3170,72 @@ def fix_mechanic_armaments(data, pe, ptch_va, ptch_off, cave_cursor, server=Fals
 # rest of the object.  Client and server.
 # ============================================================
 
+# ============================================================
+# OPTIONAL VARIANT (--hail-guard): you cannot hail anyone while your own comms are off.
+#
+# ShipInterface::doCommunicateWithSelected (the HAIL command) only checks that something is selected and that
+# it has a comms channel; it never looks at the player's own comms module (id 0xe), so a ship with comms
+# switched off (or no comms module) can still open a channel to an authority ship or a station.  The 1.0.6
+# change log says outgoing hails were stopped while comms are disabled ("emergency or incoming only"), but
+# nothing in the handler does that.  The guard runs first thing in the handler: if SystemManager::getModule(0xe)
+# gives no module, or the module is disconnected (the flag doToggleComms tests, +0x63), the command logs
+# "Comms offline: cannot hail." and returns false -- by jumping to the handler's own error exit, so the stack
+# and registers are unwound exactly as for "No object selected.".  Incoming hails are not touched.
+# ============================================================
+
+HAIL_MSG = b"Comms offline: cannot hail.\0"
+
+
+def fix_hail_guard(data, pe, ptch_va, ptch_off, cave_cursor, server=False):
+    label = "Outgoing hails need your comms module connected (optional variant)" + (" (server)" if server else "")
+    applied, skipped = _fix_lists(server)
+    if server:
+        HOOK, GETMOD, JOIN = 0x004E553D, 0x004E7B18, 0x004E558A
+    else:
+        HOOK, GETMOD, JOIN = 0x004E5ACD, 0x004E80A8, 0x004E5B1A
+    # mov esi,[ebx+0x19c] ; test esi,esi ; jne +7   -- the first thing the handler does with the selection
+    if verify_site(data, pe, HOOK, bytes.fromhex("8BB39C010000" "85F6" "7507"), label + " (handler entry)") is None:
+        return bail(label, cave_cursor, server)
+    # push 0 ; push 0xe ; mov ecx,[reg+0x40] ; call getModule   (doToggleComms)
+    if (verify_site(data, pe, GETMOD, bytes.fromhex("6A006A0E"), label + " (getModule args)") is None
+            or verify_site(data, pe, GETMOD + 7, bytes([0xE8]), label + " (getModule call)") is None):
+        return bail(label, cave_cursor, server)
+    GET_MODULE = _rel32_target(data, pe, GETMOD + 7, 1)
+    # push 2 ; push [ebx+0x224] ; call addLogLine  -- the shared error exit
+    if verify_site(data, pe, JOIN, bytes.fromhex("6A02FFB324020000E8"), label + " (error exit)") is None:
+        return bail(label, cave_cursor, server)
+
+    cave_va = ptch_va + cave_cursor
+    code = bytearray()
+    code += bytes.fromhex("6A00" "6A0E" "8B4B40")                              # push 0 ; push 0xe ; mov ecx,[ebx+0x40]
+    code += b"\xE8" + _rel32(cave_va, len(code), GET_MODULE, 1)                # call getModule
+    code += bytes.fromhex("85C0")                                              # test eax,eax
+    jz_at = len(code); code += bytes.fromhex("7400")                           # jz refuse
+    code += bytes.fromhex("80786300")                                     # cmp byte [eax+0x63],0
+    je_at = len(code); code += bytes.fromhex("7400")                           # je refuse
+    code += bytes.fromhex("8BB39C010000")                                      # mov esi,[ebx+0x19c]   (displaced)
+    code += b"\xE9" + _rel32(cave_va, len(code), HOOK + 6, 1)                  # jmp back
+    refuse = len(code)
+    code[jz_at + 1] = refuse - (jz_at + 2)
+    code[je_at + 1] = refuse - (je_at + 2)
+    code += bytes.fromhex("E800000000")                                        # call $+5
+    pop_at = len(code); code += b"\x58"                                        # pop eax  (= address of this byte)
+    msg_delta_at = len(code) + 1; code += bytes.fromhex("05" "00000000")       # add eax,<message - here>
+    code += b"\x50"                                                            # push eax
+    code += b"\xE9" + _rel32(cave_va, len(code), JOIN, 1)                      # jmp error exit (push 2 ; push [ebx+0x224] ; call)
+    msg_at = len(code)
+    struct.pack_into("<i", code, msg_delta_at, msg_at - pop_at)
+    code += HAIL_MSG
+    code += b"\x90" * (-len(code) % 4)
+    data[ptch_off + cave_cursor: ptch_off + cave_cursor + len(code)] = code
+    neutralize_relocations(data, pe, HOOK, 6, label)
+    off = va_to_offset(pe, HOOK)
+    data[off:off + 6] = b"\xE9" + struct.pack("<i", cave_va - (HOOK + 5)) + b"\x90"
+    print(f"  [OK] {label}")
+    applied.append(label)
+    return cave_cursor + len(code)
+
+
 def fix_behaviour_uninitialised_stealth(data, pe, ptch_va, ptch_off, cave_cursor, server=False):
     label = "NPC ships run dark (IFF off) from uninitialised memory" + (" (server)" if server else "")
     applied, skipped = _fix_lists(server)
@@ -3456,6 +3529,8 @@ def patch_server_exe(exe_path):
         cave_cursor = fix_weapon_spinup(data, pe, ptch_va, ptch_off, cave_cursor, server=True)
     if MECH_VARIANT:
         cave_cursor = fix_mechanic_armaments(data, pe, ptch_va, ptch_off, cave_cursor, server=True)
+    if HAIL_VARIANT:
+        cave_cursor = fix_hail_guard(data, pe, ptch_va, ptch_off, cave_cursor, server=True)
     cave_cursor = fix_power_drain_modifier(data, pe, ptch_va, ptch_off, cave_cursor, server=True)
     cave_cursor = fix_autopilot_overshoot(data, pe, ptch_va, ptch_off, cave_cursor, server=True)
     cave_cursor = fix_autopilot_cruise_burn(data, pe, ptch_va, ptch_off, cave_cursor, server=True)
@@ -4069,7 +4144,7 @@ def print_status(game_dir):
         if status.state == STATE_PATCHED and status.version != PATCHER_VERSION:
             if variants_of(status.version):
                 print(f"  {'':<16} -> {describe_variants(variants_of(status.version))} installed; "
-                      f"re-run with the same --pds-everything / --civilians-comply / --debug-iff / --weapon-spinup-fix / --mechanic-armaments / --ui-extras / --depots options to keep it")
+                      f"re-run with the same --pds-everything / --civilians-comply / --debug-iff / --weapon-spinup-fix / --mechanic-armaments / --ui-extras / --depots / --hail-guard / --local-news options to keep it")
             else:
                 print(f"  {'':<16} -> run this script with no arguments to update it to v{PATCHER_VERSION}")
     mod_dir = game_dir.joinpath(*MOD_DIR_RELATIVE)
@@ -4485,6 +4560,14 @@ def main():
                              "game has the station class and the screen buttons but no sector uses it) next to the first "
                              "station of each of the twelve main systems.  Nothing in the game places depots, so this "
                              "has not been seen working.")
+    parser.add_argument("--hail-guard", action="store_true",
+                        help="OPTIONAL: you cannot open an outgoing hail while your own comms module is switched off "
+                             "or missing (the 1.0.6 change log says this was fixed, but the hail command never "
+                             "checks).  Incoming hails are not affected.")
+    parser.add_argument("--local-news", action="store_true",
+                        help="OPTIONAL, data only: news articles from a regional paper (Diwali Examiner, Galilean "
+                             "Post, ...) only reach your comms PC once you are in that paper's system, as the "
+                             "developers intended but never shipped.  Edits the news files in place.")
     parser.add_argument("--uninstall", action="store_true",
                         help="Restore the original exe(s) from their .original-backup files "
                              "and remove the bugfix mod, then exit.")
@@ -4504,7 +4587,8 @@ def main():
                              "instead of deleting them after a verified restore.")
     args = parser.parse_args()
     enable_variants(pds=args.pds_everything, civ=args.civilians_comply, iff_debug=args.debug_iff, spinup=args.weapon_spinup_fix,
-                    mech=args.mechanic_armaments, ui=args.ui_extras, depots=args.depots)
+                    mech=args.mechanic_armaments, ui=args.ui_extras, depots=args.depots,
+                    hail=args.hail_guard, news=args.local_news)
 
     if args.list_installs:
         found = find_game_dirs()
@@ -4647,6 +4731,8 @@ def main():
         cave_cursor = fix_weapon_spinup(data, pe, ptch_va, ptch_off, cave_cursor)
     if MECH_VARIANT:
         cave_cursor = fix_mechanic_armaments(data, pe, ptch_va, ptch_off, cave_cursor)
+    if HAIL_VARIANT:
+        cave_cursor = fix_hail_guard(data, pe, ptch_va, ptch_off, cave_cursor)
     cave_cursor = fix_power_drain_modifier(data, pe, ptch_va, ptch_off, cave_cursor)
     fix_terminal_power_units(data, pe)
     cave_cursor = fix_forced_conversation_first_option(data, pe, ptch_va, ptch_off, cave_cursor)
