@@ -89,6 +89,8 @@ If you run `ois_patcher.py` from Command Prompt or PowerShell, you can pass thes
 | `py ois_patcher.py --weapon-spinup-fix` | (this branch) Weapon tube spin-up gets shorter with better parts instead of longer. |
 | `py ois_patcher.py --mechanic-armaments` | (this branch) The station mechanic also sells the M-6 light torpedo and the TD-8 stellar probe. |
 | `py ois_patcher.py --ui-extras` | (this branch, data only) Sensors AUTO button on every ship; depot buttons on the Enceladus docking screen. |
+| `py ois_patcher.py --hail-guard` | (this branch) You cannot open an outgoing hail while your own comms module is off or missing. |
+| `py ois_patcher.py --local-news` | (this branch, data only) Regional newspapers' articles only reach your comms PC once you are in that paper's system. |
 | `py ois_patcher.py --depots` | (this branch, data only, experimental) Places a DP-9 depot next to the first station of each main system. |
 | `py ois_patcher.py --civilians-comply` | (this branch) Applies the civilian-demands variant described below. |
 
@@ -249,6 +251,33 @@ repair drone systems") with a `begin depot` sector block, the docking-screen but
 No sector file uses it, so the buttons never show. This flag places one depot, 25 Gm from the first listed station, in each of the
 twelve main systems (`OP-DEPOT00` to `OP-DEPOT11`). The depot loader does not read `emissionstrength` the way stations and
 jumpgates do, so whether a depot can be seen and docked with is a guess. Nothing in the stock game ever places one.
+
+### Optional: hail guard (`--hail-guard`)
+
+`ShipInterface::doCommunicateWithSelected` (the HAIL command) checks that something is selected and has a comms channel, and
+never looks at your own comms module, so a ship with comms switched off (or no comms module) can still open a channel to an
+authority ship or a station. The 1.0.6 change log says outgoing hails were stopped while comms are disabled ("emergency or
+incoming only"); nothing in the handler does that. With this flag the handler first asks `SystemManager::getModule(0xe)`: no
+module, or one that is disconnected (the flag `doToggleComms` flips, `+0x63`), logs `Comms offline: cannot hail.` and returns
+false through the handler's own error exit. Incoming hails are untouched. Client and server exe.
+`python3 tools/hail/test_hail.py <ois.exe>` runs the real handler under emulation with the module missing, disconnected and
+connected (stock exe: all three go through; patched: the first two are refused, registers and stack restored).
+
+### Optional, data only: regional news (`--local-news`)
+
+The developers said (Steam forums, 14 Mar 2019) that news was meant to reach you only from the star system you are in, "on our
+list" but never shipped. The engine already supports it: an article's `Req:` lines are all required, and `in_sector_<id>` is true
+while you are in that sector (stories use it). This adds `Req: in_sector_<home sector>` to the articles of papers that belong to one
+place -- the Magellan Courier and Loaiso Herald (Magella), Penitent Times, Crassus Lens, Globe and Leon Marker (Leo), Tegan Mirror,
+Cansan Sentinel, Diwali Examiner, Galilean Post, The Lights (Sagan's Lights), Parssusian Worker and Age of Parssus (Parssus),
+Sisters Post -- 468 of 604 articles. An article appears the first time you are in its system on or after its date, then stays.
+The Sentinel, Inquirer, Suns, Libertarian, Free Press and the rest circulate everywhere and stay global.
+The table is `LOCAL_NEWS_SECTORS` in `apply_data_fixes.py`; edit it to taste. Matching is by name or where a paper's output is
+about one place (checked by counting place names per outlet), which is judgement, not game data. Side effect to know: a story that
+tells you to read a particular paper can be waiting on a system you have not visited yet.
+News files are edited in place (mods cannot override them), the originals are kept in `oisbugfix_original_assets/`, and running
+the patcher again without `--local-news` (or `--uninstall`) puts them back. `python3 tools/news/test_local_news.py <assets>` checks
+the on/off round trip on a copy.
 
 ### Save tool: hold every bounty (`tools/save/add_bounties.py`)
 

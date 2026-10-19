@@ -3596,7 +3596,7 @@ def install_mod(exe_path):
         if wanted:
             for name, lines in fixes.items():
                 extra.setdefault(name, []).extend(lines)
-    return apply_data_fixes.install(exe_path.parent, mod_src, extra or None)
+    return apply_data_fixes.install(exe_path.parent, mod_src, extra or None, local_news=NEWS_VARIANT)
 
 
 # ============================================================

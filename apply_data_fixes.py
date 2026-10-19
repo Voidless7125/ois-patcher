@@ -666,35 +666,84 @@ def _apply_line_fixes(content, line_fixes):
     return content
 
 
-def apply_inplace(assets_dir, backup_dir):
+# Optional --local-news variant: the developers said (Steam forums, 14 Mar 2019) that news articles were meant to appear
+# only when you are in the right star system, and that it was on their list but never shipped.  The engine already has
+# what is needed: an article's `Req:` lines (all must hold) accept any flag, and `in_sector_<id>` is true while you are in
+# that sector.  So each article from a regional paper gets `Req: in_sector_<home sector>` and appears the first time you
+# are in that system on or after its date (and then stays).  Papers are matched to a sector by name, or where the paper's
+# whole output is about one place; papers of no single place (The Sentinel, The Inquirer, The Suns, The Libertarian,
+# The Free Press, ...) stay global.  Edit this table to taste -- the key is the exact `Publication:` text.
+LOCAL_NEWS_SECTORS = {
+    "The Magellan Courier": 0, "The Magella Herald": 0, "The Loaiso Herald": 0, "Loaiso Herald": 0,   # Magella (Loaiso is in it)
+    "The Penitent Times": 1, "The Crassus Lens": 1, "The Globe": 1, "The Leon Marker": 1,             # Leo
+    "The Tegan Mirror": 3,                                                                              # Tega
+    "The Cansan Sentinel": 4,                                                                           # Cansa
+    "The Diwali Examiner": 5,                                                                           # Diwali
+    "The Galilean Post": 6,                                                                             # Galileo
+    "The Lights": 8,                                                                                    # Sagan's Lights
+    "The Parssusian Worker": 9, "The Age of Parssus": 9, "Age of Parssus": 9,                          # Parssus
+    "The Sisters Post": 11,                                                                             # Two Sisters
+}
+_PUBLICATION = re.compile(r"^Publication:[ \t]*(.*?)[ \t]*\r?$", re.M)
+
+
+def local_news_fix(text):
+    """The one line fix that makes this article regional, as a [(count, old, new)] list ([] if it stays global)."""
+    m = _PUBLICATION.search(text)
+    if not m or m.group(1) not in LOCAL_NEWS_SECTORS or len(_PUBLICATION.findall(text)) != 1:
+        return []
+    eol = "\r\n" if "\r\n" in text else "\n"
+    old = m.group(0).rstrip("\r")
+    return [(1, old, f"{old}{eol}Req: in_sector_{LOCAL_NEWS_SECTORS[m.group(1)]}")]
+
+
+def apply_inplace(assets_dir, backup_dir, local_news=False):
     """Applies the news_/info_ fixes directly to assets/, keeping originals.
 
-    Safe to re-run: the backup (if present) is the pristine source, unless the
-    game files changed underneath it (a game update), in which case the current
-    files become the new originals.  Returns (applied, skipped)."""
+    Safe to re-run: the backup (if present) is the pristine source, unless the game files changed underneath it
+    (a game update), in which case the current files become the new originals.  A file is recognised as ours if it
+    equals the original, the original with the standing fixes, or that plus the local-news line -- so running again
+    with or without --local-news switches it on or off cleanly.  Returns (applied, skipped)."""
     assets_dir, backup_dir = Path(assets_dir), Path(backup_dir)
+    base = {f: l for f, l in FIXES.items() if is_inplace(f)}
+    names = set(base) | {p.name for p in assets_dir.glob("news_*.txt")}
+    if backup_dir.is_dir():
+        names |= {p.name for p in backup_dir.glob("*.txt")}
     applied = skipped = 0
-    for filename, line_fixes in FIXES.items():
-        if not is_inplace(filename):
-            continue
+    for filename in sorted(names):
         target = assets_dir / filename
         if not target.is_file():
-            print(f"  [SKIP] {filename}: not found in {assets_dir}")
-            skipped += 1
+            if filename in base:
+                print(f"  [SKIP] {filename}: not found in {assets_dir}")
+                skipped += 1
             continue
         backup = backup_dir / filename
+        base_fixes = base.get(filename, [])
         current = target.read_bytes().decode("utf-8")
         original = current
         if backup.is_file():
             saved = backup.read_bytes().decode("utf-8")
-            if current == saved or current == _apply_line_fixes(saved, line_fixes):
+            stages = {saved, _apply_line_fixes(saved, base_fixes)}
+            news = local_news_fix(saved) if filename.startswith("news_") else []
+            if news:
+                stages.add(_apply_line_fixes(saved, base_fixes + news))
+            if current in stages:
                 original = saved
             # else: the game file changed since we backed it up -> treat it as the new original
-        fixed = _apply_line_fixes(original, line_fixes)
+        wanted = list(base_fixes)
+        if local_news and filename.startswith("news_"):
+            wanted += local_news_fix(original)
+        fixed = _apply_line_fixes(original, wanted)
         if fixed is None:
             print(f"  [SKIP] {filename}: expected known text, found something different -- "
                   f"different game version or already modified")
             skipped += 1
+            continue
+        if not wanted:                                  # nothing to apply any more: put the original back, drop our copy
+            if current != original:
+                target.write_bytes(original.encode("utf-8"))
+            if backup.is_file():
+                backup.unlink()
             continue
         backup_dir.mkdir(parents=True, exist_ok=True)
         if not backup.is_file() or backup.read_bytes().decode("utf-8") != original:
@@ -755,7 +804,7 @@ def apply_all(assets_dir, mod_dst_dir, extra_fixes=None):
     return applied, skipped
 
 
-def install(game_root, bundled_mod_dir, extra_fixes=None):
+def install(game_root, bundled_mod_dir, extra_fixes=None, local_news=False):
     """Full mod install: copies this project's own modinfo.txt as-is
     (it's original content, not derived from the game), then generates
     every data fix from the user's own assets/ folder. `game_root` is the
@@ -783,7 +832,7 @@ def install(game_root, bundled_mod_dir, extra_fixes=None):
     shutil.copy2(modinfo_src, mod_dst / "modinfo.txt")
 
     applied, skipped = apply_all(assets_dir, mod_dst, extra_fixes)
-    a2, s2 = apply_inplace(assets_dir, game_root / ORIGINALS_DIRNAME)
+    a2, s2 = apply_inplace(assets_dir, game_root / ORIGINALS_DIRNAME, local_news)
     applied, skipped = applied + a2, skipped + s2
 
     print(f"\n[OK] Bugfix mod: {applied} fix(es) applied, {skipped} skipped -- installed to {mod_dst}")
