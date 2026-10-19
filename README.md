@@ -250,6 +250,19 @@ No sector file uses it, so the buttons never show. This flag places one depot, 2
 twelve main systems (`OP-DEPOT00` to `OP-DEPOT11`). The depot loader does not read `emissionstrength` the way stations and
 jumpgates do, so whether a depot can be seen and docked with is a guess. Nothing in the stock game ever places one.
 
+### Save tool: hold every bounty (`tools/save/add_bounties.py`)
+
+Not a patch: it writes a modified copy of one of your saves and never touches the original.
+
+    python tools/save/add_bounties.py "<ObjectsInSpace folder>" objects00.sav objects00_bounties.sav [--per-sector N] [--seed S]
+
+`assets/galaxy.txt` defines 2,933 bounties, but a save holds only the ones you accepted. This appends one accepted bounty per
+`bounty=` line (payout rolled from its dice, a new pirate ship name from `pirate_names.txt`, captain name and registration in the
+game's own style), copying the layout of `V12::writeBounty`. Whenever you are in a bounty's target sector and its registration is not
+there, the game spawns that pirate, so every bounty you hold for a sector spawns on arrival: up to 270 pirates in sectors 108 and
+114. `--per-sector 10` keeps it playable. Needs a save that already holds at least one bounty (an empty list can't be located).
+Written from the decompile and checked by re-reading the output; not played in the game.
+
 ### Optional variant: a point-defence system that works (`--pds-everything`)
 
 This is **not a bug fix and is off by default.** It changes gameplay balance, so
