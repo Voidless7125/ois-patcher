@@ -6,7 +6,7 @@
 An unofficial community patch for *Objects in Space*, the space-stealth game by Flat Earth Games. It fixes numerous crashes (including the Pirate Hunt crash and the station-to-ship transition crash), broken modules, autopilot bugs, power-drain math, UI glitches, and over 450 text/dialogue typos—while staying strictly faithful to the developers' original vision.
 
 > **Safe by default:** Before anything is modified, the patcher automatically backs up your original `ois.exe` and `ois_server.exe` as `.original-backup` files, and you can uninstall with a single command at any time.
-
+  
 ---
 
 ## Quick Start (Step-by-Step for Beginners)
@@ -20,8 +20,8 @@ Python on Windows is installed using the official **Python Install Manager (`.ms
    - Double-click the downloaded `.msix` file and click **Install**.
 2. **Finish the Automatic Terminal Setup & Enable `PATH`:**
    - As soon as the `.msix` installation finishes, a terminal window will **launch automatically** to install the default Python runtime.
-   - When prompted in that terminal window to **add the global commands directory (`%LocalAppData%\Pythonin`) to your `PATH`**, press **`y`** (Yes) so `python`, `py`, and `pip` work everywhere.
-   - *(Note: If you didn't get the prompt or closed the window early, open PowerShell or Command Prompt and run `py install default --configure`. If you need to add the directory to `PATH` manually later, click Start, search for **"Edit environment variables for your account"**, and add `%LocalAppData%\Pythonin` to your user `Path`.)*
+   - When prompted in that terminal window to **add the global commands directory (`%LocalAppData%\Python`) in to your `PATH`**, press **`y`** (Yes) so `python`, `py`, and `pip` work everywhere.
+   - *(Note: If you didn't get the prompt or closed the window early, open PowerShell or Command Prompt and run `py install default --configure`. If you need to add the directory to `PATH` manually later, click Start, search for **"Edit environment variables for your account"**, and add `%LocalAppData%\Python` in to your user `Path`.)*
 3. **The `pefile` Package:**
    - The patcher needs the `pefile` package to read and patch the game files. If it isn't installed yet, **`ois_patcher.py` will automatically ask if you want to install it** right when you run it and will handle it for you (or you can install it manually anytime via `py -m pip install pefile`).
 
@@ -109,7 +109,7 @@ If you ever want to revert everything by hand without running the script:
 - **`'py'` or `'python'` is not recognized:**  
   1. Make sure you opened a **new** terminal window after installing Python.
   2. If you had an older version of Python installed previously, uninstall the old **"Python Launcher"** from Windows **Installed Apps** and check **Settings → Apps → Advanced app settings → App execution aliases** to make sure the **`python.exe`** and **`py.exe`** aliases are toggled **On** ([Python Windows Troubleshooting docs](https://docs.python.org/3/using/windows.html#troubleshooting)).
-  3. To check your `PATH` manually, click Start, search for **"Edit environment variables for your account"**, and ensure `%LocalAppData%\Pythonin` is listed under your user `Path`.
+  3. To check your `PATH` manually, click Start, search for **"Edit environment variables for your account"**, and ensure `%LocalAppData%\Python` is listed under your user `Path`.
 - **`This script needs 'pefile'`:**  
   Open PowerShell or Command Prompt and run `py -m pip install pefile`.
 - **"Could not automatically find the game folder":**  
