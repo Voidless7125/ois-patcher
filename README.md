@@ -10,9 +10,11 @@ An unofficial bugfix patch for *Objects in Space*, an incredible (but abandoned)
 ---
 
 ## Why I built this
+
 *Objects in Space* is a genuine work of art that was sadly abandoned before completion. I built this patch to fix the most glaring issues preventing players from enjoying the game, without fundamentally changing the experience the developers created. I hope it helps you enjoy the game as much as I have.
 
 ## Goal: restoring original intent, not adding new features
+
 Every fix in this patch exists because something the developers clearly intended to work is broken, unreachable, or crashes. The scope is deliberately narrow: **restore the game to the state it evidently was meant to ship in—not redesign it, rebalance it, or extend it.**
 
 - **Unambiguous bugs are in scope:** Typos, missing bounds-checks, leaked resource handles, use-after-free bugs, and identifiers one character too long for fixed-size network buffers.
@@ -20,9 +22,11 @@ Every fix in this patch exists because something the developers clearly intended
 - **No guesswork disguised as restoration:** Nothing here touches economy, difficulty, or content balance.
 
 ## Why a Python script instead of a pre-patched `ois.exe`?
+
 Distributing a source script that patches your own installation rather than a pre-modified `.exe` is a deliberate security and copyright choice:
+
 1. **Visibility & Security:** Anyone can read `ois_patcher.py` and `apply_data_fixes.py` to inspect every exact byte and file modified, rather than trusting an opaque binary from the internet.
-2. **No Redistributed Game Assets:** Both the binary patches and data fixes are generated on the fly from your own local `Objects in Space` installation, so Flat Earth Games' copyrighted files are never bundled in this repository. 
+2. **No Redistributed Game Assets:** Both the binary patches and data fixes are generated on the fly from your own local `Objects in Space` installation, so Flat Earth Games' copyrighted files are never bundled in this repository.
 3. **Universal Compatibility:** This byte-by-byte "match" behavior applies regardless of where the exe came from.
 
 ---
@@ -48,17 +52,22 @@ Python on Windows is installed using the official **Python Install Manager (`.ms
 **Choose your preferred installation method below:**
 
 #### Method A: Download the ZIP (Recommended for most players)
+
 1. Download the latest release `.zip` from the [Releases page](https://github.com/l33way/ois-patcher/releases) (or click the green **Code → Download ZIP** button on GitHub).
 2. **Right-click** the downloaded `.zip` file in File Explorer and click **Extract All...**.
    - **Important:** Do not double-click `ois_patcher.py` from *inside* the unextracted `.zip` preview! Extract the entire folder first and keep all files (`ois_patcher.py`, `apply_data_fixes.py`, `text_fixes.py`, and the `mod/` folder) together inside the same folder.
 
 #### Method B: Use Git Clone (Advanced — best for seamless auto-updates)
+
 If you are comfortable using Git, cloning the repository directly enables the patcher's built-in self-update feature so you can pull new fixes instantly:
+
 1. Open a terminal where you want to keep your patcher files and clone the repo:
+
    ```powershell
    git clone https://github.com/l33way/ois-patcher.git
    cd ois-patcher
    ```
+
    *(Note: If you are using a personal fork such as Voidless7125's repository, clone your fork's URL instead so auto-update fetches from your fork).*
 2. The patcher will automatically verify your remote URL and check for updates on future runs.
 
@@ -67,6 +76,7 @@ If you are comfortable using Git, cloning the repository directly enables the pa
 - **Easiest way (ZIP install):** Open your extracted folder in File Explorer and **double-click `ois_patcher.py`**.
   - A window will open, automatically find your Steam (or GOG) *Objects in Space* installation, back up your original files, apply all binary and mod fixes, and wait for you to **press any key to close** when finished.
 - **From a Terminal:** You can also open a terminal in the patcher folder and run:
+
   ```powershell
   py ois_patcher.py
   ```
@@ -88,10 +98,12 @@ That's it! Launch *Objects in Space* through Steam as normal.
 ## Updating, Checking Status, & Uninstalling
 
 ### Updating to a Newer Release
+
 - **If you used the ZIP:** Download and extract the new release over your existing folder (or re-run `ois_patcher.py`). It detects the older patch version, restores your clean `.original-backup` files automatically, and applies the newest fixes cleanly on top.
 - **If you used `git clone`:** Simply run `py ois_patcher.py`. The script will automatically check GitHub for upstream updates, show you the commit changelog, and ask if you'd like to pull and re-run automatically.
 
 ### Command-Line Options
+
 If you run `ois_patcher.py` from Command Prompt or PowerShell, you can pass these options:
 
 | Command | What it does |
@@ -104,7 +116,9 @@ If you run `ois_patcher.py` from Command Prompt or PowerShell, you can pass thes
 | `py ois_patcher.py --yes` | Skips confirmation prompts and exits immediately without waiting for a keypress (for scripts). |
 
 ### Manual Uninstall (If Needed)
+
 If you ever want to revert everything by hand without running the script:
+
 1. Copy `ois.exe.original-backup` back over `ois.exe` (and `ois_server.exe.original-backup` over `ois_server.exe`).
 2. Delete the `ObjectsInSpace/mods/oisbugfix` folder.
 3. Copy the files from `oisbugfix_original_assets/` back into `assets/`, then delete `oisbugfix_original_assets/` (or run Steam's **"Verify integrity of game files"**).
@@ -140,7 +154,9 @@ See **[CHANGELOG.md](CHANGELOG.md)** for the full release history, issue links, 
 ---
 
 ## What's in This Folder
+
 Keep all of these files together in the same folder:
+
 - **`ois_patcher.py`** — The main script you run (or double-click).
 - **`apply_data_fixes.py`** — Imported automatically by `ois_patcher.py` to generate the `oisbugfix` mod from your local `assets/` files.
 - **`text_fixes.py`** — Spelling, grammar, and quest logic correction snippets loaded automatically by `apply_data_fixes.py`.
@@ -149,7 +165,9 @@ Keep all of these files together in the same folder:
 ---
 
 ## Limitation of liability
-This patch is provided "as is," without warranty of any kind. Use at your own risk. While `.original-backup` files are created automatically, you are responsible for keeping backups of your game and save files. 
+
+This patch is provided "as is," without warranty of any kind. Use at your own risk. While `.original-backup` files are created automatically, you are responsible for keeping backups of your game and save files.
 
 ## License
+
 Free to use, share, and adapt for non-commercial purposes with credit to the original author (**Leeway**). See [LICENSE](LICENSE) for full terms.
