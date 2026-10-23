@@ -2571,9 +2571,6 @@ def fix_behaviour_uninitialised_stealth(data, pe, ptch_va, ptch_off, cave_cursor
     applied.append(label)
     return cave_cursor
 
-
-# ============================================================
-
 # ============================================================
 # Fix 33: Crash to desktop when returning from a station to the player
 # ship on saves played for some time (GitHub issue #58).
