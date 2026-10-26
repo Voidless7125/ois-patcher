@@ -3701,7 +3701,26 @@ def _manual_update_hint(reason, repo_dir=None):
     print(f"         Check for a newer release at: {url}")
 
 
-def check_for_updates(assume_update=False):
+
+def _warn_about_active_branch(repo_dir):
+    """Displays a notice to the user depending on which fork/branch they are running."""
+    url = _detect_repo_url(repo_dir)
+    branch_res = _git(["rev-parse", "--abbrev-ref", "HEAD"], repo_dir)
+    branch = branch_res.stdout.strip() if branch_res and branch_res.returncode == 0 else "unknown"
+
+    if "Voidless7125" in url:
+        if branch == "personal-variants":
+            print("\n[NOTICE] You are tracking Voidless7125's 'personal-variants' branch.")
+            print("         This version includes experimental/personal gameplay changes")
+            print("         that fall outside the scope of the official vanilla bugfix patch.")
+        else:
+            print(f"\n[NOTICE] You are tracking Voidless7125's fork (Branch: {branch}).")
+    elif "l33way" in url:
+        if branch != "master":
+            print(f"\n[NOTICE] You are tracking a non-standard branch ({branch}) on the official l33way repo.")
+    else:
+        print(f"\n[NOTICE] You are tracking a third-party fork: {url} (Branch: {branch})")
+\ndef check_for_updates(assume_update=False):
     """Returns True if the script updated itself and re-ran (caller should
     stop). Any failure here is a notice, never a reason to abort a patch
     run -- being one commit behind is not a safety problem."""
