@@ -10,6 +10,8 @@ All notable changes to the **Objects in Space — Unofficial Bugfix Patch** are 
 
 ---
 
+## Version History
+
 ### [0.4.1] - 2026-10-15
 
 - **New fix (exe, client and server):** Some NPC ships no longer turn up with their IFF off ("Unknown" in red on the nav map) and their reactors switched off, as Leslie Garbut's *SS Jolly Rancher* did in the intro on some machines. `ShipBehaviour`'s "stealthy" byte (+0x160) was set to 1 for pirates and `stealthy=true` ships but never cleared otherwise, and the constructor leaves it as whatever the heap held, so any non-zero leftover made the ship run dark. The constructor now zeroes it (and +0x15C). Found with a debug-log diagnostic that showed the IFF flag changing 1 → 0 inside the AI update (reported by [@Voidless7125](https://github.com/Voidless7125)).
