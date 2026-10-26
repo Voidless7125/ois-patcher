@@ -14,6 +14,10 @@ All notable changes to the **Objects in Space — Unofficial Bugfix Patch** are 
 
 ### [0.4.1] - 2026-10-15
 
+- **Plugin Architecture**: Added dynamic loading of `personal_variants.py` (if present) to allow custom executable and data patches without modifying the core files or maintaining hard forks.
+- **Branch Warning System**: The patcher now detects if you are on a non-standard or personal fork/branch and displays a warning to prevent accidental updates from mismatched upstreams.
+- **Extended Cave Size**: Increased the `.ptch` section allocation to `0x1000` to comfortably accommodate larger community mods.
+
 - **New fix (exe, client and server):** Some NPC ships no longer turn up with their IFF off ("Unknown" in red on the nav map) and their reactors switched off, as Leslie Garbut's *SS Jolly Rancher* did in the intro on some machines. `ShipBehaviour`'s "stealthy" byte (+0x160) was set to 1 for pirates and `stealthy=true` ships but never cleared otherwise, and the constructor leaves it as whatever the heap held, so any non-zero leftover made the ship run dark. The constructor now zeroes it (and +0x15C). Found with a debug-log diagnostic that showed the IFF flag changing 1 → 0 inside the AI update (reported by [@Voidless7125](https://github.com/Voidless7125)).
 
 - **New fix (exe, client):** Fixed a crash to desktop when returning from a station to the player ship on saves played for some time ([Issue #58](https://github.com/l33way/ois-patcher/issues/58) — reported by [@ABadChoice](https://github.com/ABadChoice)). `PresentationInterface::update` previously ran `Room::runLogic` (queueing deferred Cocos2d-x `RenderTexture` draw commands for station monitors) *before* `runFullFadeLogic` destroyed the outgoing room's screens on the same frame, and `Room::runLogic` updated screens before `RoomObject::render` state/visibility rebuilds. Both ordering bugs are now fixed so destroyed `ScreenInterface` objects are never drawn after free.

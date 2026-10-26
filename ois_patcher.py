@@ -199,7 +199,7 @@ SERVER_FIXES_SKIPPED = []
 # upgrade", instead of one generic message either way.
 PATCHER_VERSION = "0.4.1"
 VERSION_MARKER_PREFIX = b"OISPATCH:"
-VERSION_MARKER_SIZE = 32  # reserved bytes at the start of .ptch's raw data
+VERSION_MARKER_SIZE = 64  # reserved bytes at the start of .ptch's raw data
 
 
 def load_pe(data):
@@ -401,7 +401,7 @@ def add_ptch_section(data):
     sec_hdr_off = ptch_section.get_file_offset()
     pe2.close()
 
-    CAVE_FILE_SIZE = 0x800
+    CAVE_FILE_SIZE = 0x1000
     new_raw_data_offset = len(data)
     if new_raw_data_offset % file_align != 0:
         data.extend(b"\x00" * (file_align - (new_raw_data_offset % file_align)))
@@ -2834,6 +2834,14 @@ def patch_server_exe(exe_path):
     cave_cursor = fix_autopilot_overshoot(data, pe, ptch_va, ptch_off, cave_cursor, server=True)
     cave_cursor = fix_autopilot_cruise_burn(data, pe, ptch_va, ptch_off, cave_cursor, server=True)
     cave_cursor = fix_behaviour_uninitialised_stealth(data, pe, ptch_va, ptch_off, cave_cursor, server=True)
+
+    # --- PLUGIN HOOK ---
+    try:
+        import personal_variants
+        cave_cursor = personal_variants.apply_exe_fixes(data, pe, ptch_va, ptch_off, cave_cursor, server=True)
+    except ImportError:
+        pass
+    # -------------------
     pe.close()
 
     if cave_cursor > ptch_size:
@@ -4008,6 +4016,14 @@ def main():
     cave_cursor = fix_behaviour_uninitialised_stealth(data, pe, ptch_va, ptch_off, cave_cursor)
     cave_cursor = fix_nav_jump_range_efficiency(data, pe, ptch_va, ptch_off, cave_cursor)
     cave_cursor = fix_station_to_ship_crash(data, pe, ptch_va, ptch_off, cave_cursor)
+
+    # --- PLUGIN HOOK ---
+    try:
+        import personal_variants
+        cave_cursor = personal_variants.apply_exe_fixes(data, pe, ptch_va, ptch_off, cave_cursor, server=False)
+    except ImportError:
+        pass
+    # -------------------
     pe.close()
 
     if cave_cursor > ptch_size:

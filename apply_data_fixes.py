@@ -427,6 +427,16 @@ except ImportError:
 for _name, _entries in TEXT_FIXES.items():
     FIXES.setdefault(_name, []).extend(_entries)
 
+# --- PLUGIN HOOK ---
+try:
+    from personal_variants import DATA_FIXES
+    for _name, _entries in DATA_FIXES.items():
+        FIXES.setdefault(_name, []).extend(_entries)
+except ImportError:
+    pass
+# -------------------
+
+
 
 # Module purchase emails (see ois_patcher.fix_module_purchase_email). Most categories
 # share one email text across every model ("Thank you for purchasing this weapons
