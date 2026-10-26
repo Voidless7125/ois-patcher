@@ -3720,7 +3720,8 @@ def _warn_about_active_branch(repo_dir):
             print(f"\n[NOTICE] You are tracking a non-standard branch ({branch}) on the official l33way repo.")
     else:
         print(f"\n[NOTICE] You are tracking a third-party fork: {url} (Branch: {branch})")
-\ndef check_for_updates(assume_update=False):
+
+def check_for_updates(assume_update=False):
     """Returns True if the script updated itself and re-ran (caller should
     stop). Any failure here is a notice, never a reason to abort a patch
     run -- being one commit behind is not a safety problem."""
