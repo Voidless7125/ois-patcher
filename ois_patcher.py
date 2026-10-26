@@ -3702,24 +3702,46 @@ def _manual_update_hint(reason, repo_dir=None):
 
 
 
-def _warn_about_active_branch(repo_dir):
+def _warn_about_active_branch():
     """Displays a notice to the user depending on which fork/branch they are running."""
-    url = _detect_repo_url(repo_dir)
-    branch_res = _git(["rev-parse", "--abbrev-ref", "HEAD"], repo_dir)
-    branch = branch_res.stdout.strip() if branch_res and branch_res.returncode == 0 else "unknown"
+    if os.environ.get(UPDATED_ENV):
+        return
+    try:
+        here = Path(__file__).resolve().parent
+    except NameError:
+        return
+    
+    top = _git(["rev-parse", "--show-toplevel"], here)
+    if top is None or top.returncode != 0:
+        return
 
+    url = _detect_repo_url(here)
+    branch_res = _git(["rev-parse", "--abbrev-ref", "HEAD"], here)
+    branch = branch_res.stdout.strip() if branch_res and branch_res.returncode == 0 else "unknown"
+    
+    upstream_res = _git(["rev-parse", "--abbrev-ref", "@{u}"], here)
+    upstream = upstream_res.stdout.strip() if upstream_res and upstream_res.returncode == 0 else "unknown"
+
+    print("============================================================")
     if "Voidless7125" in url:
         if branch == "personal-variants":
-            print("\n[NOTICE] You are tracking Voidless7125's 'personal-variants' branch.")
+            print("[NOTICE] You are tracking Voidless7125's 'personal-variants' branch.")
             print("         This version includes experimental/personal gameplay changes")
             print("         that fall outside the scope of the official vanilla bugfix patch.")
         else:
-            print(f"\n[NOTICE] You are tracking Voidless7125's fork (Branch: {branch}).")
+            print(f"[NOTICE] You are tracking Voidless7125's fork (Branch: {branch}).")
     elif "l33way" in url:
-        if branch != "master":
-            print(f"\n[NOTICE] You are tracking a non-standard branch ({branch}) on the official l33way repo.")
+        if branch != "master" and branch != "unknown":
+            print(f"[NOTICE] You are tracking a non-standard branch ({branch}) on the official l33way repo.")
     else:
-        print(f"\n[NOTICE] You are tracking a third-party fork: {url} (Branch: {branch})")
+        print(f"[NOTICE] You are tracking a third-party fork: {url} (Branch: {branch})")
+        
+    if upstream != "unknown" and branch != "unknown":
+        upstream_branch_name = upstream.split('/')[-1]
+        if upstream_branch_name != branch:
+            print(f"[WARNING] Local branch '{branch}' is tracking mismatched upstream '{upstream}'.")
+            print("          Running --update may pull unexpected changes!")
+    print("============================================================\n")
 
 def check_for_updates(assume_update=False):
     """Returns True if the script updated itself and re-ran (caller should
@@ -3813,6 +3835,7 @@ def check_for_updates(assume_update=False):
 # ============================================================
 
 def main():
+    _warn_about_active_branch()
     parser = argparse.ArgumentParser(
         description="Unofficial Objects in Space (ois.exe) bugfix patcher",
         epilog="With no arguments, the game folder is detected automatically, "
