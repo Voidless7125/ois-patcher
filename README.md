@@ -3,7 +3,7 @@
 **Credit:** Leeway ([steamcommunity.com/id/l33way](https://steamcommunity.com/id/l33way/))  
 **Major Contributor & QA:** [Voidless7125](https://github.com/Voidless7125)
 
-An unofficial bugfix patch for *Objects in Space*, an incredible (but abandoned) space-stealth game by Flat Earth Games. It fixes numerous crashes (including the Pirate Hunt crash and the station-to-ship transition crash), broken modules, autopilot bugs, power-drain math, UI glitches, and over 450 text/dialogue typos—while staying strictly faithful to the developers' original vision.
+An unofficial bugfix patch for *Objects in Space*, an incredible (but sadly abandoned) space-stealth game by Flat Earth Games. It fixes numerous crashes (including the Pirate Hunt crash and the station-to-ship transition crash), broken modules, autopilot bugs, power-drain math, UI glitches, and over 450 text/dialogue typos, while staying strictly faithful to the developers' original vision.
 
 > **Safe by default:** Before anything is modified, the patcher automatically backs up your original `ois.exe` and `ois_server.exe` as `.original-backup` files, and you can uninstall with a single command at any time.
 
@@ -11,7 +11,7 @@ An unofficial bugfix patch for *Objects in Space*, an incredible (but abandoned)
 
 ## Why I built this
 
-*Objects in Space* is a genuine work of art that was sadly abandoned before completion. I built this patch to fix the most glaring issues preventing players from enjoying the game, without fundamentally changing the experience the developers created. I hope it helps you enjoy the game as much as I have.
+*Objects in Space* is a genuine work of art. It just never got finished. This patch is my attempt to change that - fixing what's broken, so it can be closer to what it was meant to be.
 
 ## Goal: restoring original intent, not adding new features
 
