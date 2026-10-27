@@ -28,6 +28,20 @@ from pathlib import Path
 FIXES = {
     # BUG-001: a literal typo in an include directive orphaned an entire
     # co-op scenario.
+        # Cassandra docking permission typo fix
+    "ui_cassandra.txt": [
+        (1,
+         "    text=7,21,180,134,`7Permission is required undock your utility shuttle from the Cassandra.,NONE,!OWES_MONEY_TO_DOCKED_STATION",
+         "    text=7,21,180,134,`7Permission is required to undock your utility shuttle from the Cassandra.,NONE,!OWES_MONEY_TO_DOCKED_STATION"),
+    ],
+
+        # Lester F Ward transit bug fix (Game breaking loop)
+    "lfw_lesterfward3.txt": [
+        (1,
+         "req=!lfw_lesterfwradconv3done",
+         "req=!lfw_lesterfwardconv3done"),
+    ],
+
     "scenarios.txt": [
         (1,
          "include coop_escort_3.txtX",
@@ -379,20 +393,6 @@ FIXES = {
          "    tabname=Cargo\n    width=256\n    height=192\n    linkto=helm\n"),
     ],
 
-    # modules_npc.txt holds the NPC-only modules (the Remora's own RCS and sensor, the probe sensor).  The shop
-    # stock generator (TradeLocation::addRandomModules) picks module classes with a basevalue of at least 1,
-    # and the debug log of a game shows "AP-RCS1" (Remora RCS, basevalue 2505) and "Probe Sensor"
-    # (basevalue 1872) being stocked in shops -- cheap, and better than the shop equivalents.  The Remora's
-    # own sensor (RM-SNS) is already basevalue=0 and never appears.  Set the two to 0 like it: the modules
-    # stay and the ships and probes keep using them, they are just not sold.
-    "modules_npc.txt": [
-        (1,
-         "    basevalue=2505\n",
-         "    basevalue=0\n"),
-        (1,
-         "    basevalue=1872\n",
-         "    basevalue=0\n"),
-    ],
 
     # BUG-032: the Comms Download / Sync terminal is a square (192x192)
     # screen. The game only builds its log and "?" help pages for 4:3 and
@@ -426,6 +426,16 @@ except ImportError:
     TEXT_FIXES = {}
 for _name, _entries in TEXT_FIXES.items():
     FIXES.setdefault(_name, []).extend(_entries)
+
+# --- PLUGIN HOOK ---
+try:
+    from personal_variants import DATA_FIXES
+    for _name, _entries in DATA_FIXES.items():
+        FIXES.setdefault(_name, []).extend(_entries)
+except ImportError:
+    pass
+# -------------------
+
 
 
 # Module purchase emails (see ois_patcher.fix_module_purchase_email). Most categories
