@@ -9,8 +9,8 @@ mode and category and checks that only (mode full, category story) reaches the s
 import os
 import sys
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "common"))
-import emu as tp
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "pds"))
+import test_pds as tp
 from unicorn.x86_const import UC_X86_REG_EAX
 
 SITE, SAVE_PATH, NOT_SAVING = 0x4B8789, 0x4B8793, 0x4B89DD

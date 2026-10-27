@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Assembles the three point-defence caves (see fix_pds_torpedoes in ois_patcher.py).
+"""Assembles the three PDS caves (see fix_pds_target_everything in ois_patcher.py).
 
 Developer tool -- the patcher itself carries the finished bytes and does not
 need keystone.  Run this to regenerate / double-check them:
@@ -18,7 +18,11 @@ from keystone import Ks, KS_ARCH_X86, KS_MODE_32
 GSWD            = 0x004A6D10   # GameData::getShipWithinDistance (stdcall, ret 0x14)
 GSWD_PASS       = 0x004A6DAF   # inside it: "this ship is a candidate"
 GSWD_SKIP       = 0x004A6E37   # inside it: "next ship"
+GET_EFFICIENCY  = 0x00437E40   # ComponentInterfaceInstance::getEfficiencyPercent (thiscall)
 PDS_AFTER_SHOT  = 0x004AF9CA   # ShipModule::runLogic: shake + sound + start reload
+PDS_NO_TARGET   = 0x004AFA5C   # ShipModule::runLogic: nothing to shoot
+PDS_HIT_PATH    = 0x004AF843   # ShipModule::runLogic: the roll succeeded
+PDS_MISS_PATH   = 0x004AF9AF   # ShipModule::runLogic: the roll failed ("miss")
 
 SOURCES = {}
 
@@ -30,22 +34,29 @@ SOURCES["filter"] = f"""
     je      {GSWD_PASS}                   # flag 0: every ship (all other callers, unchanged)
     mov     eax, [ecx+0x254]              # ShipClass*
     test    eax, eax
-    je      ship
-    cmp     dword ptr [eax+0x158], 4      # vessel type 4: torpedo / probe / mine
-    jne     ship
-    cmp     byte ptr [ecx+0x3cc], 0       # a weapon that is already destroyed
+    je      {GSWD_SKIP}
+    mov     eax, [eax+0x158]              # vessel type: 0 ship, 1 station, 2 gate, 4 torpedo/probe/mine
+    cmp     bl, 2
+    je      weapons
+    test    eax, eax                      # flag 1: ordinary ships only (never stations / gates)
+    jne     {GSWD_SKIP}
+    mov     eax, [ecx+0x40]
+    cmp     byte ptr [eax+0x34], 0        # IFF transponder on: friendly / neutral, leave it alone
+    jne     {GSWD_SKIP}
+    cmp     dword ptr [ecx+0xd4], 3       # not one that is docked
+    jne     {GSWD_PASS}
+    cmp     dword ptr [ecx+0xf8], 2
+    je      {GSWD_SKIP}
+    jmp     {GSWD_PASS}
+weapons:
+    cmp     eax, 4                        # flag 2: torpedoes, probes, mines
+    jne     {GSWD_SKIP}
+    cmp     byte ptr [ecx+0x3cc], 0       # already destroyed
     jne     {GSWD_SKIP}
     mov     eax, [ecx+0x39c]              # launching ship
-    cmp     eax, [ebp+0xc]                # ours? the PDS must not shoot our own weapons
+    cmp     eax, [ebp+0xc]                # ours? leave our own weapons alone
     je      {GSWD_SKIP}
-    jmp     {GSWD_PASS}                   # a hostile weapon: stock rule, always a candidate
-ship:
-    cmp     bl, 2                         # pass 1 asks for weapons only
-    je      {GSWD_SKIP}
-    mov     eax, [ecx+0x40]
-    cmp     byte ptr [eax+0x34], 0        # stock rule for ships: only if the IFF transponder is off
-    je      {GSWD_PASS}
-    jmp     {GSWD_SKIP}
+    jmp     {GSWD_PASS}
 """
 
 # 2. Target selection.  Replaces `call getShipWithinDistance` in the PDS code.
@@ -92,6 +103,99 @@ ship:
     jmp     dword ptr [eax+0xc]           # Ship::damage, original stack
 """
 
+# 3b. The hit roll.  Replaces `cmp [ebp-0x40],1 / jne miss` (10 bytes).  The roll
+#    models a laser missing a manoeuvring ship; a locked torpedo is simply shot down.
+SOURCES["roll"] = f"""
+    mov     eax, [ebp-0x3c]               # the target chosen above
+    mov     ecx, [eax+0x254]
+    test    ecx, ecx
+    je      roll
+    cmp     dword ptr [ecx+0x158], 4
+    je      {PDS_HIT_PATH}
+roll:
+    cmp     dword ptr [ebp-0x40], 1
+    jne     {PDS_MISS_PATH}
+    jmp     {PDS_HIT_PATH}
+"""
+
+# 4. Countermeasures.  Entered instead of "no target": ESI = ship, EBX = module.
+SOURCES["countermeasure"] = f"""
+    sub     esp, 0x10
+    mov     ecx, [ebx+0xc]
+    call    {GET_EFFICIENCY}
+    movd    xmm0, eax
+    cvtdq2ps xmm0, xmm0
+    mov     eax, 0x42c80000               # 100.0f
+    movd    xmm2, eax
+    divss   xmm0, xmm2
+    mov     eax, [ebx+8]
+    movss   xmm1, [eax+0x104]
+    mulss   xmm1, xmm0                    # range
+    mulss   xmm1, xmm1                    # range squared
+    movsd   xmm4, [esi+0x28]
+    cvtpd2ps xmm4, xmm4
+    movsd   xmm5, [esi+0x30]
+    cvtpd2ps xmm5, xmm5                   # our position
+    mov     eax, [esi+0x24]               # Sector*
+    test    eax, eax
+    je      none
+    mov     ecx, [eax+0x9c]               # synthetic objects: begin
+    mov     edx, [eax+0xa0]               #                    end
+    mov     [esp], ecx
+    mov     [esp+4], edx
+next:
+    mov     ecx, [esp]
+    cmp     ecx, [esp+4]
+    je      none
+    add     dword ptr [esp], 4
+    mov     eax, [ecx]                    # object
+    cmp     dword ptr [eax+0x60], 3       # countermeasure?
+    jne     next
+    cmp     dword ptr [eax+0xf4], 0       # timer already run out (about to be removed)?
+    jle     next
+    movsd   xmm2, [eax+0x28]
+    cvtpd2ps xmm2, xmm2
+    movsd   xmm3, [eax+0x30]
+    cvtpd2ps xmm3, xmm3
+    subss   xmm2, xmm4
+    subss   xmm3, xmm5
+    mulss   xmm2, xmm2
+    mulss   xmm3, xmm3
+    addss   xmm2, xmm3
+    comiss  xmm1, xmm2
+    jb      next                          # out of range
+    mov     edx, [eax+0x78]               # owner's registration vs ours
+    cmp     edx, [esi+0x248]
+    jne     found                         # different length: not ours
+    test    edx, edx
+    je      next                          # both empty: treat as ours
+    push    esi
+    push    edi
+    lea     edi, [eax+0x68]
+    cmp     dword ptr [eax+0x7c], 0x10
+    jb      mine_ok
+    mov     edi, [edi]
+mine_ok:
+    lea     ecx, [esi+0x238]
+    cmp     dword ptr [esi+0x24c], 0x10
+    jb      ours_ok
+    mov     ecx, [ecx]
+ours_ok:
+    mov     esi, ecx
+    mov     ecx, edx
+    repe cmpsb
+    pop     edi
+    pop     esi
+    je      next                          # identical: our own decoy
+found:
+    mov     dword ptr [eax+0xf4], 0       # decoy timer expires -> removed on its next tick
+    add     esp, 0x10
+    jmp     {PDS_AFTER_SHOT}
+none:
+    add     esp, 0x10
+    jmp     {PDS_NO_TARGET}
+"""
+
 
 def assemble(name, base):
     ks = Ks(KS_ARCH_X86, KS_MODE_32)
@@ -117,7 +221,8 @@ def build(name):
     return code, fixups
 
 
-SYMBOLS = {GSWD: "GSWD", GSWD_PASS: "PASS", GSWD_SKIP: "SKIP", PDS_AFTER_SHOT: "AFTER_SHOT"}
+SYMBOLS = {GSWD: "GSWD", GSWD_PASS: "PASS", GSWD_SKIP: "SKIP", GET_EFFICIENCY: "EFFICIENCY",
+           PDS_AFTER_SHOT: "AFTER_SHOT", PDS_NO_TARGET: "NO_TARGET", PDS_HIT_PATH: "HIT", PDS_MISS_PATH: "MISS"}
 
 
 def emit_python():

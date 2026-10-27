@@ -12,16 +12,28 @@ All notable changes to the **Objects in Space — Unofficial Bugfix Patch** are 
 
 ## Version History
 
+### [Upcoming] - TBD
+
+- Fix for emcom modes not saving on ship undocks and redocks
+- Fix for game fps not recovering after being idle in game for too long
+- Opening a ships module while docking will force turn it on, even while you are using it.
+- New dll plugin avabile (Made by voidless7125)
+- Fix for screen rez button not working as intended
+- More grammer fixes
+- New changelog system
+- Edit the in game news with info about our mod
+- Plugin for a rebalancing (Maybe?!)
+- New ship previewer for modules on github (Voidless7125)
+
 ### [0.4.1] - 2026-10-15
 
 - **Plugin Architecture**: Added dynamic loading of `personal_variants.py` (if present) to allow custom executable and data patches without modifying the core files or maintaining hard forks.
 - **Branch Warning System**: The patcher now detects if you are on a non-standard or personal fork/branch and displays a warning to prevent accidental updates from mismatched upstreams.
 - **Extended Cave Size**: Increased the `.ptch` section allocation to `0x1000` to comfortably accommodate larger community mods.
-
 - **New fix (exe, client and server):** Some NPC ships no longer turn up with their IFF off ("Unknown" in red on the nav map) and their reactors switched off, as Leslie Garbut's *SS Jolly Rancher* did in the intro on some machines. `ShipBehaviour`'s "stealthy" byte (+0x160) was set to 1 for pirates and `stealthy=true` ships but never cleared otherwise, and the constructor leaves it as whatever the heap held, so any non-zero leftover made the ship run dark. The constructor now zeroes it (and +0x15C). Found with a debug-log diagnostic that showed the IFF flag changing 1 → 0 inside the AI update (reported by [@Voidless7125](https://github.com/Voidless7125)).
-
 - **New fix (exe, client):** Fixed a crash to desktop when returning from a station to the player ship on saves played for some time ([Issue #58](https://github.com/l33way/ois-patcher/issues/58) — reported by [@ABadChoice](https://github.com/ABadChoice)). `PresentationInterface::update` previously ran `Room::runLogic` (queueing deferred Cocos2d-x `RenderTexture` draw commands for station monitors) *before* `runFullFadeLogic` destroyed the outgoing room's screens on the same frame, and `Room::runLogic` updated screens before `RoomObject::render` state/visibility rebuilds. Both ordering bugs are now fixed so destroyed `ScreenInterface` objects are never drawn after free.
 - **Usability:** `ois_patcher.py` can now be launched directly by double-clicking it in Windows File Explorer and waits for a keypress before closing the console window, and automatically detects the active fork's `origin` remote URL for update notices.
+- Revirt change of NPC module, as zzeroing the price did not make it not selllable in the shop
 
 ---
 
