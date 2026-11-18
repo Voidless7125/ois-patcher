@@ -21,7 +21,9 @@ If this file exists, ois_patcher.py will automatically detect and load it.
    Ensure you import any required functions from `ois_patcher` *inside* your functions
    to prevent circular import errors when the script starts up.
 """
+import re
 import struct
+from pathlib import Path
 
 # Data half of the optional --mechanic-armaments variant (ois_patcher.fix_mechanic_armaments).  Only
 # installed together with that exe patch: the two new buttons ask the mechanic for armament indices
@@ -77,6 +79,7 @@ def apply_exe_fixes(data, pe, ptch_va, ptch_off, cave_cursor, server=False):
     
     cave_cursor = fix_mechanic_armaments(data, pe, ptch_va, ptch_off, cave_cursor, server)
     cave_cursor = fix_torpedo_lost_target(data, pe, ptch_va, ptch_off, cave_cursor, server)
+    cave_cursor = fix_hail_guard(data, pe, ptch_va, ptch_off, cave_cursor, server)
 
     return cave_cursor
 
@@ -271,3 +274,186 @@ def fix_torpedo_lost_target(data, pe, ptch_va, ptch_off, cave_cursor, server=Fal
 
 
 
+
+
+# ============================================================
+# Hail guard: you cannot hail anyone while your own comms are off.
+#
+# ShipInterface::doCommunicateWithSelected (the HAIL command) only checks that something is selected and that
+# it has a comms channel; it never looks at the player's own comms module (id 0xe), so a ship with comms
+# switched off (or no comms module) can still open a channel to an authority ship or a station.  The 1.0.6
+# change log says outgoing hails were stopped while comms are disabled ("emergency or incoming only"), but
+# nothing in the handler does that.  The guard runs first thing in the handler: if SystemManager::getModule(0xe)
+# gives no module, or the module is disconnected (the flag doToggleComms tests, +0x63), the command logs
+# "Comms offline: cannot hail." and returns false -- by jumping to the handler's own error exit, so the stack
+# and registers are unwound exactly as for "No object selected.".  Incoming hails are not touched.
+# tools/hail/test_hail.py runs it under emulation (client and server).
+# ============================================================
+
+HAIL_MSG = b"Comms offline: cannot hail.\0"
+
+
+def fix_hail_guard(data, pe, ptch_va, ptch_off, cave_cursor, server=False):
+    import ois_patcher
+    _fix_lists = ois_patcher._fix_lists
+    verify_site = ois_patcher.verify_site
+    bail = ois_patcher.bail
+    _rel32_target = ois_patcher._rel32_target
+    _rel32 = ois_patcher._rel32
+    neutralize_relocations = ois_patcher.neutralize_relocations
+    va_to_offset = ois_patcher.va_to_offset
+
+    label = "Outgoing hails need your comms module connected (personal variant)" + (" (server)" if server else "")
+    applied, skipped = _fix_lists(server)
+    if server:
+        HOOK, GETMOD, JOIN = 0x004E553D, 0x004E7B18, 0x004E558A
+    else:
+        HOOK, GETMOD, JOIN = 0x004E5ACD, 0x004E80A8, 0x004E5B1A
+    # mov esi,[ebx+0x19c] ; test esi,esi ; jne +7   -- the first thing the handler does with the selection
+    if verify_site(data, pe, HOOK, bytes.fromhex("8BB39C010000" "85F6" "7507"), label + " (handler entry)") is None:
+        return bail(label, cave_cursor, server)
+    # push 0 ; push 0xe ; mov ecx,[reg+0x40] ; call getModule   (doToggleComms)
+    if (verify_site(data, pe, GETMOD, bytes.fromhex("6A006A0E"), label + " (getModule args)") is None
+            or verify_site(data, pe, GETMOD + 7, bytes([0xE8]), label + " (getModule call)") is None):
+        return bail(label, cave_cursor, server)
+    GET_MODULE = _rel32_target(data, pe, GETMOD + 7, 1)
+    # push 2 ; push [ebx+0x224] ; call addLogLine  -- the shared error exit
+    if verify_site(data, pe, JOIN, bytes.fromhex("6A02FFB324020000E8"), label + " (error exit)") is None:
+        return bail(label, cave_cursor, server)
+
+    cave_va = ptch_va + cave_cursor
+    code = bytearray()
+    code += bytes.fromhex("6A00" "6A0E" "8B4B40")                              # push 0 ; push 0xe ; mov ecx,[ebx+0x40]
+    code += b"\xE8" + _rel32(cave_va, len(code), GET_MODULE, 1)                # call getModule
+    code += bytes.fromhex("85C0")                                              # test eax,eax
+    jz_at = len(code); code += bytes.fromhex("7400")                           # jz refuse
+    code += bytes.fromhex("80786300")                                          # cmp byte [eax+0x63],0
+    je_at = len(code); code += bytes.fromhex("7400")                           # je refuse
+    code += bytes.fromhex("8BB39C010000")                                      # mov esi,[ebx+0x19c]   (displaced)
+    code += b"\xE9" + _rel32(cave_va, len(code), HOOK + 6, 1)                  # jmp back
+    refuse = len(code)
+    code[jz_at + 1] = refuse - (jz_at + 2)
+    code[je_at + 1] = refuse - (je_at + 2)
+    code += bytes.fromhex("E800000000")                                        # call $+5
+    pop_at = len(code); code += b"\x58"                                        # pop eax  (= address of this byte)
+    msg_delta_at = len(code) + 1; code += bytes.fromhex("05" "00000000")       # add eax,<message - here>
+    code += b"\x50"                                                            # push eax
+    code += b"\xE9" + _rel32(cave_va, len(code), JOIN, 1)                      # jmp error exit (push 2 ; push [ebx+0x224] ; call)
+    msg_at = len(code)
+    struct.pack_into("<i", code, msg_delta_at, msg_at - pop_at)
+    code += HAIL_MSG
+    code += b"\x90" * (-len(code) % 4)
+
+    data[ptch_off + cave_cursor: ptch_off + cave_cursor + len(code)] = code
+    neutralize_relocations(data, pe, HOOK, 6, label)
+    off = va_to_offset(pe, HOOK)
+    data[off:off + 6] = b"\xE9" + struct.pack("<i", cave_va - (HOOK + 5)) + b"\x90"
+    print(f"  [OK] {label}")
+    applied.append(label)
+    return cave_cursor + len(code)
+
+
+# ============================================================
+# Local news (data only): the developers said (Steam forums, 14 Mar 2019) that news articles were meant to appear only
+# when you are in the right star system, and that it was on their list but never shipped.  The engine already has what
+# is needed: an article's `Req:` lines (all must hold) accept any flag, and `in_sector_<id>` is true while you are in
+# that sector.  So each article from a regional paper gets `Req: in_sector_<home sector>` and appears the first time you
+# are in that system on or after its date (and then stays).  Papers are matched to a sector by name; papers of no
+# single place (The Sentinel, The Inquirer, The Suns, The Libertarian, The Free Press, ...) stay global.  Edit the table
+# to taste -- the key is the exact `Publication:` text.
+#
+# The news files are edited in place (mods cannot override them).  The patcher keeps pristine copies for the files it
+# fixes itself; this plugin adds its one line AFTER that and strips it again at the start of every run and on uninstall,
+# so the patcher's own backup logic only ever sees stock or stock-plus-its-own-fixes text.
+# ============================================================
+
+LOCAL_NEWS_SECTORS = {
+    "The Magellan Courier": 0, "The Magella Herald": 0, "The Loaiso Herald": 0, "Loaiso Herald": 0,   # Magella (Loaiso is in it)
+    "The Penitent Times": 1, "The Crassus Lens": 1, "The Globe": 1, "The Leon Marker": 1,             # Leo
+    "The Tegan Mirror": 3,                                                                              # Tega
+    "The Cansan Sentinel": 4,                                                                           # Cansa
+    "The Diwali Examiner": 5,                                                                           # Diwali
+    "The Galilean Post": 6,                                                                             # Galileo
+    "The Lights": 8,                                                                                    # Sagan's Lights
+    "The Parssusian Worker": 9, "The Age of Parssus": 9, "Age of Parssus": 9,                          # Parssus
+    "The Sisters Post": 11,                                                                             # Two Sisters
+}
+_PUBLICATION = re.compile(r"^Publication:[ \t]*(.*?)[ \t]*\r?$", re.M)
+
+
+def local_news_line(text):
+    """(publication line, the line this plugin appends after it) for a regional article, else None."""
+    pubs = _PUBLICATION.findall(text)
+    if len(pubs) != 1 or pubs[0] not in LOCAL_NEWS_SECTORS:
+        return None
+    m = _PUBLICATION.search(text)
+    return m.group(0).rstrip("\r"), f"Req: in_sector_{LOCAL_NEWS_SECTORS[pubs[0]]}"
+
+
+def add_local_news(text):
+    """text with the regional line added (unchanged for a global article or one that already has it)."""
+    hit = local_news_line(text)
+    if hit is None:
+        return text
+    pub, req = hit
+    eol = "\r\n" if "\r\n" in text else "\n"
+    if pub + eol + req in text:
+        return text
+    return text.replace(pub, pub + eol + req, 1)
+
+
+def strip_local_news(text):
+    """Exactly undoes add_local_news."""
+    hit = local_news_line(text)
+    if hit is None:
+        return text
+    pub, req = hit
+    eol = "\r\n" if "\r\n" in text else "\n"
+    return text.replace(pub + eol + req, pub, 1)
+
+
+def _news_files(game_dir):
+    return sorted((Path(game_dir) / "assets").glob("news_*.txt"))
+
+
+def _rewrite_news(game_dir, fn):
+    """Applies fn to every news file; returns how many changed."""
+    n = 0
+    for f in _news_files(game_dir):
+        old = f.read_bytes().decode("utf-8")
+        new = fn(old)
+        if new != old:
+            f.write_bytes(new.encode("utf-8"))
+            n += 1
+    return n
+
+
+def begin_run(game_dir, assume_yes=False, **kwargs):
+    n = _rewrite_news(game_dir, strip_local_news)
+    if n:
+        print(f"  (local news: lifted from {n} article(s) before patching; re-added afterwards)")
+
+
+def post_install(game_dir):
+    n = _rewrite_news(game_dir, add_local_news)
+    if n:
+        print(f"  [OK] Local news: {n} regional article(s) now need you to be in their system")
+
+
+def status_lines(game_dir):
+    n = sum(1 for f in _news_files(game_dir) if local_news_line(f.read_bytes().decode("utf-8"))
+            and add_local_news(f.read_bytes().decode("utf-8")) == f.read_bytes().decode("utf-8"))
+    return [f"  {'local news':<16} {f'{n} regional article(s) gated by sector' if n else 'not applied'}"]
+
+
+def uninstall_plan(game_dir):
+    if any(local_news_line(t) and add_local_news(t) == t for t in
+           (f.read_bytes().decode("utf-8") for f in _news_files(game_dir))):
+        return ["remove the local-news sector requirement from the news articles in assets/"]
+    return []
+
+
+def uninstall(game_dir, keep_backups=False):
+    n = _rewrite_news(game_dir, strip_local_news)
+    print(f"  removed the local-news requirement from {n} article(s)")
+    return True

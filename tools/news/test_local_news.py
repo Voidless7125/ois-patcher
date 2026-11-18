@@ -1,41 +1,68 @@
 #!/usr/bin/env python3
-"""Round-trip test for --local-news (no game needed beyond its news_/info_ text files).
+"""Lifecycle test for the local-news plugin feature (personal_variants.py).  Needs no game files:
 
-    python3 tools/news/test_local_news.py <assets folder>
+    python3 tools/news/test_local_news.py [<game dir with assets/>]
 
-Works on a temporary copy of the news_*/info_* files in <assets folder>, with the originals this tool saved next to it
-(oisbugfix_original_assets) laid over them if present.  Checks that switching local news on adds exactly one `Req: in_sector_N`
-line to each regional article (and nothing else changes), that running again changes nothing, that switching it off
-returns to the standing fixes, and that restoring the saved originals gives back the starting files.
+Builds news_*.txt files in a temporary game folder (or copies the ones from <game dir>/assets, with any originals
+the patcher saved laid over them), then runs the same sequence ois_patcher.py does -- begin_run, the patcher's own
+in-place fixes (apply_data_fixes.apply_inplace), post_install -- and checks that each regional article gains exactly one
+`Req: in_sector_N` line and nothing else changes, that re-running is a no-op, that the patcher's backups never contain
+the line (so uninstall gives back the true originals), and that the plugin's own uninstall removes it again.
 """
+import contextlib
 import glob
-import hashlib
+import io
 import os
 import re
 import shutil
 import sys
 import tempfile
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.join(HERE, "..", ".."))
 import apply_data_fixes as adf
+import personal_variants as pv
+
+
+def quiet(fn, *a, **k):
+    with contextlib.redirect_stdout(io.StringIO()):
+        return fn(*a, **k)
+
+
+def synthetic(assets):
+    """One regional + one global article per line ending, and a regional one the patcher itself fixes."""
+    fixed_name, fixes = next((f, l) for f, l in adf.FIXES.items() if adf.is_inplace(f) and f.startswith("news_"))
+    body = "".join(old + "\n" for _, old, _ in fixes)
+    arts = {
+        "news_t1.txt": "Publication: The Diwali Examiner\nDate: 1\n\nBody\n",
+        "news_t2.txt": "Publication: The Diwali Examiner\r\nDate: 1\r\n\r\nBody\r\n",
+        "news_t3.txt": "Publication: The Sentinel\nDate: 1\n\nBody\n",
+        fixed_name: "Publication: The Galilean Post\n" + body,
+    }
+    for n, t in arts.items():
+        with open(os.path.join(assets, n), "wb") as f:
+            f.write(t.encode())
+    return set(arts) - {"news_t3.txt"}
 
 
 def main():
-    src = sys.argv[1]
-    work = tempfile.mkdtemp()
-    assets, backups = os.path.join(work, "assets"), os.path.join(work, "orig")
+    game = tempfile.mkdtemp()
+    assets, backups = os.path.join(game, "assets"), os.path.join(game, adf.ORIGINALS_DIRNAME)
     os.mkdir(assets)
-    for f in glob.glob(os.path.join(src, "news_*.txt")) + glob.glob(os.path.join(src, "info_*.txt")):
-        shutil.copy(f, assets)
-    saved = os.path.join(src, "..", adf.ORIGINALS_DIRNAME)          # an installed game: start from the saved originals
-    for f in glob.glob(os.path.join(saved, "*.txt")):
-        shutil.copy(f, assets)
+    if len(sys.argv) > 1:
+        src = sys.argv[1]
+        for f in glob.glob(os.path.join(src, "assets", "news_*.txt")):
+            shutil.copy(f, assets)
+        for f in glob.glob(os.path.join(src, adf.ORIGINALS_DIRNAME, "news_*.txt")):
+            shutil.copy(f, assets)
+        regional = {os.path.basename(f) for f in glob.glob(os.path.join(assets, "news_*.txt"))
+                    if pv.local_news_line(open(f, encoding="utf-8").read())}
+    else:
+        regional = synthetic(assets)
 
     def snap():
         return {os.path.basename(f): open(f, "rb").read() for f in glob.glob(os.path.join(assets, "*.txt"))}
 
-    start = snap()
-    quiet = lambda *a, **k: None
     ok = True
 
     def check(cond, what):
@@ -43,35 +70,36 @@ def main():
         ok &= bool(cond)
         print(f"  {'PASS' if cond else 'FAIL'} {what}")
 
-    import contextlib, io
-    with contextlib.redirect_stdout(io.StringIO()):
-        adf.apply_inplace(assets, backups, False)
-    base = snap()
-    with contextlib.redirect_stdout(io.StringIO()):
-        adf.apply_inplace(assets, backups, True)
+    def run():                                           # what ois_patcher.py does around an install
+        quiet(pv.begin_run, game, True)
+        quiet(adf.apply_inplace, assets, backups)
+        quiet(pv.post_install, game)
+
+    start = snap()
+    quiet(adf.apply_inplace, assets, backups)
+    base = snap()                                        # the patcher's own fixes only
+    run()
     on = snap()
-    changed = [k for k in on if on[k] != base[k]]
-    regional = [k for k in on if k.startswith("news_") and adf.local_news_fix(base[k].decode("utf-8"))]
-    check(sorted(changed) == sorted(regional), f"{len(changed)} regional articles changed, no others")
-    one_line = all(len(on[k].splitlines()) == len(base[k].splitlines()) + 1 for k in changed)
-    check(one_line, "each gained exactly one line")
+    changed = {k for k in on if on[k] != base[k]}
+    check(changed == regional, f"{len(changed)} regional article(s) changed, no others")
+    check(all(len(on[k].splitlines()) == len(base[k].splitlines()) + 1 for k in changed), "each gained exactly one line")
     check(all(re.search(rb"^Req: in_sector_\d+\r?$", on[k], re.M) for k in changed), "the line is `Req: in_sector_<n>`")
-    check(all(on[k].replace(re.search(rb"^Req: in_sector_\d+\r?\n", on[k], re.M).group(0), b"", 1) == base[k]
-              for k in changed), "removing that line gives the standing-fix text back")
-    with contextlib.redirect_stdout(io.StringIO()):
-        adf.apply_inplace(assets, backups, True)
+    check(all(pv.strip_local_news(on[k].decode()).encode() == base[k] for k in changed), "stripping it gives the fixed text back")
+    check(all(b"in_sector_" not in open(os.path.join(backups, k), "rb").read() for k in changed if os.path.exists(os.path.join(backups, k))),
+          "the patcher's saved originals never contain the line")
+    run()
     check(snap() == on, "running again changes nothing")
-    with contextlib.redirect_stdout(io.StringIO()):
-        adf.apply_inplace(assets, backups, False)
-    check(snap() == base, "switching it off returns to the standing fixes")
-    with contextlib.redirect_stdout(io.StringIO()):
-        adf.apply_inplace(assets, backups, True)
-    for f in glob.glob(os.path.join(backups, "*.txt")):
+    quiet(pv.begin_run, game, True)
+    check(snap() == base, "begin_run lifts it again (so the patcher's backup logic never sees it)")
+    run()
+    check(pv.uninstall_plan(game) != [], "uninstall plan offers to remove it")
+    quiet(pv.uninstall, game)
+    check(snap() == base and pv.uninstall_plan(game) == [], "plugin uninstall removes it")
+    for f in glob.glob(os.path.join(backups, "*.txt")):  # then the patcher restores its saved originals
         shutil.copy(f, assets)
-    restored = snap()
-    check(not any(b"in_sector_" in restored[k] and b"in_sector_" not in start[k] for k in restored),
-          "restoring the saved originals removes every local-news line")
-    shutil.rmtree(work)
+    after = snap()
+    check(all(after[k] == start[k] for k in start), "after the patcher's restore every file equals the starting file")
+    shutil.rmtree(game)
     print("\nall checks passed" if ok else "\nFAILED")
     sys.exit(0 if ok else 1)
 
