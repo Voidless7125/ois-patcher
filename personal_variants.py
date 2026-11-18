@@ -21,6 +21,8 @@ If this file exists, ois_patcher.py will automatically detect and load it.
    Ensure you import any required functions from `ois_patcher` *inside* your functions
    to prevent circular import errors when the script starts up.
 """
+import struct
+
 # Data half of the optional --mechanic-armaments variant (ois_patcher.fix_mechanic_armaments).  Only
 # installed together with that exe patch: the two new buttons ask the mechanic for armament indices
 # 4 and 5, which a stock exe does not have.  The buttons are moved up (pitch 12, first at y=140) to
@@ -73,9 +75,100 @@ def apply_exe_fixes(data, pe, ptch_va, ptch_off, cave_cursor, server=False):
     """Called by ois_patcher.py to apply custom binary patches."""
     print(f"  -> Applying personal variant patches ({'server' if server else 'client'})...")
     
+    cave_cursor = fix_mechanic_armaments(data, pe, ptch_va, ptch_off, cave_cursor, server)
     cave_cursor = fix_torpedo_lost_target(data, pe, ptch_va, ptch_off, cave_cursor, server)
-    
+
     return cave_cursor
+
+# ============================================================
+# Exe half of the MECHANIC_FIXES above: the station mechanic's Armaments tab also sells the M-6 light
+# torpedo and the TD-8 stellar probe.
+#
+# weapons.txt defines six launchable armaments (m10, m12, e10, td4, m6, td8) but the mechanic only knows four:
+# ShipInterface::doMechanicBuyArmament, TradeEngine::canBuyArmament, ShipData::checkMechanicCanBuyArmament and
+# TradeEngine::getArmamentStatus all index one 4-entry table of id strings in .rdata.  The table cannot grow in
+# place, and a table of absolute pointers in the added section would need base-relocation entries (the game does
+# not load at its preferred base), so the four indexed loads are redirected to caves that compute the string
+# address position-independently (CALL $+5 / POP) from six 4-byte ids appended to the cave, leaving every other
+# register and the flags as the original load left them:
+#       push [idx*4+T]    ->   PUSH EAX / CALL $+5 / POP EAX / LEA EAX,[EAX+idx*4+delta] / XCHG EAX,[ESP]
+#       mov  r,[idx*4+T]  ->   CALL $+5 / POP r / LEA r,[r+idx*4+delta]      (through EAX when r is the index)
+# getArmamentStatus lists one line per armament and then the countermeasure line, which it recognises by
+# index 4 and loops up to; both constants become 6.  Without this the two new buttons in MECHANIC_FIXES would
+# index past the end of the stock table.  tools/mech/test_mech.py runs the four instructions under emulation.
+# ============================================================
+
+MECH_IDS = (b"m10\0", b"m12\0", b"e10\0", b"td4\0", b"m6\0\0", b"td8\0")
+
+
+def fix_mechanic_armaments(data, pe, ptch_va, ptch_off, cave_cursor, server=False):
+    import struct
+    import ois_patcher
+    verify_site, bail, _fix_lists = ois_patcher.verify_site, ois_patcher.bail, ois_patcher._fix_lists
+    neutralize_relocations, va_to_offset = ois_patcher.neutralize_relocations, ois_patcher.va_to_offset
+
+    label = "Mechanic also sells the M-6 torpedo and TD-8 probe" + (" (server)" if server else "")
+    applied, skipped = _fix_lists(server)
+    if server:
+        TABLE, COMPARES = 0x5DD9F4, (0x495107, 0x495249)
+        SITES = ((0x494CC0, "push", "ebx"), (0x49517D, "mov", "edi"), (0x4D72B6, "push", "ebx"), (0x4E9067, "mov", "esi"))
+    else:
+        TABLE, COMPARES = 0x5DFACC, (0x495277, 0x4953B9)
+        SITES = ((0x494E30, "push", "ebx"), (0x4952ED, "mov", "edi"), (0x4D74D6, "push", "ebx"), (0x4E95F7, "mov", "esi"))
+    # (kind, index register) -> (original bytes before the table address, destination register, destination code)
+    SHAPES = {("push", "ebx"): ("FF349D", None), ("mov", "edi"): ("8B1CBD", "ebx"), ("mov", "esi"): ("8B34B5", "esi")}
+    REG = {"eax": 0, "ebx": 3, "esi": 6, "edi": 7}
+    tbl = struct.pack("<I", TABLE)
+    for site, kind, idx in SITES:
+        if verify_site(data, pe, site, bytes.fromhex(SHAPES[(kind, idx)][0]) + tbl, label + f" (table load at {site:#x})") is None:
+            return bail(label, cave_cursor, server)
+    for at in COMPARES:
+        if verify_site(data, pe, at, bytes.fromhex("83FF04"), label + f" (index limit at {at:#x})") is None:
+            return bail(label, cave_cursor, server)
+
+    cave_va = ptch_va + cave_cursor
+    code = bytearray()
+    entries = []                                              # (site, cave offset of the replacement)
+    fix_delta = []                                            # (position of the disp32, position of the POP byte)
+    for site, kind, idx in SITES:
+        start = len(code)
+        entries.append((site, start))
+        dst = SHAPES[(kind, idx)][1]
+        if kind == "push":
+            code += bytes.fromhex("50" "E800000000" "58")                            # PUSH EAX / CALL $+5 / POP EAX
+            pop_at = len(code) - 1
+            code += bytes([0x8D, 0x84, 0x80 | (REG[idx] << 3) | 0]) + b"\0\0\0\0"      # LEA EAX,[EAX+idx*4+delta]
+            fix_delta.append((len(code) - 4, pop_at))
+            code += bytes.fromhex("870424")                                          # XCHG EAX,[ESP]
+        elif dst != idx:
+            code += bytes.fromhex("E800000000") + bytes([0x58 | REG[dst]])           # CALL $+5 / POP dst
+            pop_at = len(code) - 1
+            code += bytes([0x8D, 0x80 | (REG[dst] << 3) | 4, 0x80 | (REG[idx] << 3) | REG[dst]]) + b"\0\0\0\0"   # LEA dst,[dst+idx*4+delta]
+            fix_delta.append((len(code) - 4, pop_at))
+        else:                                                                        # destination is the index itself
+            code += bytes.fromhex("50" "E800000000" "58")                            # PUSH EAX / CALL $+5 / POP EAX
+            pop_at = len(code) - 1
+            code += bytes([0x8D, 0x84, 0x80 | (REG[idx] << 3) | 0]) + b"\0\0\0\0"      # LEA EAX,[EAX+idx*4+delta]
+            fix_delta.append((len(code) - 4, pop_at))
+            code += bytes([0x89, 0xC0 | (0 << 3) | REG[idx]])                         # MOV idx,EAX
+            code += b"\x58"                                                          # POP EAX (the original)
+        code += b"\xE9" + struct.pack("<i", (site + 7) - (cave_va + len(code) + 5))   # JMP back
+    code += b"\x90" * (-len(code) % 4)
+    ids_at = len(code)
+    code += b"".join(MECH_IDS)
+    for disp_at, pop_at in fix_delta:
+        struct.pack_into("<i", code, disp_at, (cave_va + ids_at) - (cave_va + pop_at))
+    data[ptch_off + cave_cursor: ptch_off + cave_cursor + len(code)] = code
+    for site, start in entries:
+        neutralize_relocations(data, pe, site, 7, label)
+        off = va_to_offset(pe, site)
+        data[off:off + 7] = b"\xE9" + struct.pack("<i", (cave_va + start) - (site + 5)) + b"\x90\x90"
+    for at in COMPARES:
+        data[va_to_offset(pe, at) + 2] = 6
+    print(f"  [OK] {label}")
+    applied.append(label)
+    return cave_cursor + len(code)
+
 
 # ============================================================
 # Personal-variants fix: a torpedo whose target is destroyed before it hits no
@@ -93,6 +186,7 @@ def fix_torpedo_lost_target(data, pe, ptch_va, ptch_off, cave_cursor, server=Fal
     _rel32_target = ois_patcher._rel32_target
     neutralize_relocations = ois_patcher.neutralize_relocations
     _rel32 = ois_patcher._rel32
+    va_to_offset = ois_patcher.va_to_offset
 
     label = "Torpedo whose target dies re-targets the nearest contact" + (" (server)" if server else "")
     applied, skipped = _fix_lists(server)
