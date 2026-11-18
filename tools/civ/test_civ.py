@@ -12,9 +12,9 @@ import os
 import struct
 import sys
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "pds"))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "common"))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
-import test_pds as tp
+import emu as tp
 import ois_patcher
 from unicorn.x86_const import (UC_X86_REG_EAX, UC_X86_REG_EBX, UC_X86_REG_ECX, UC_X86_REG_EDI,
                                UC_X86_REG_ESI, UC_X86_REG_EBP, UC_X86_REG_ESP)

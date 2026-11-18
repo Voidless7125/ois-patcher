@@ -335,7 +335,7 @@ importance:
   friendly or not. Docked ships and stations are also left alone.
 - Throughput is still limited by the module's own range, power and reload time, so a
   large salvo can overwhelm it.
-- The caves are emulation-tested (`tools/pds/test_pds.py`), but nobody has watched a
+- The caves are emulation-tested (`tools/pds/test_pds_everything.py`), but nobody has watched a
   torpedo get shot down in the live game yet. Report what you see.
 - The variant is recorded in the exe's version marker (`v0.4.0+pds`). Running the
   patcher with or without the flag later switches between the two through the normal
