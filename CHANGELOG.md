@@ -14,6 +14,7 @@ All notable changes to the **Objects in Space — Unofficial Bugfix Patch** are 
 
 ### [Upcoming] - TBD
 
+- Dev builds are now versioned `X.Y.Z_devN` (this branch is `0.4.1_dev1`). A dev build sorts before its own release and after every earlier one, so the patcher updates a dev install to the release and never mistakes a dev build for a downgrade.
 - Fix for emcom modes not saving on ship undocks and redocks
 - Fix for game fps not recovering after being idle in game for too long
 - Opening a ships module while docking will force turn it on, even while you are using it.

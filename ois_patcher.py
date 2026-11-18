@@ -197,7 +197,7 @@ SERVER_FIXES_SKIPPED = []
 # already patched" refusal means "you already ran this exact version" or
 # "an older version patched this -- restore the backup and re-run to
 # upgrade", instead of one generic message either way.
-PATCHER_VERSION = "0.4.1"
+PATCHER_VERSION = "0.4.1_dev1"   # personal-variants only: dev builds are X.Y.Z_devN (sorts before the release X.Y.Z)
 VERSION_MARKER_PREFIX = b"OISPATCH:"
 VERSION_MARKER_SIZE = 64  # reserved bytes at the start of .ptch's raw data
 
@@ -3410,15 +3410,22 @@ def inspect_exe(exe_path):
 
 
 def parse_version(text):
-    """'0.3.2' -> (0, 3, 2). None when it isn't dotted integers, so a
-    hand-edited or future marker format degrades to 'different', never
-    to a false ordering."""
+    """'0.3.2' -> (0, 3, 2, 1, 0); '0.4.2_dev3' -> (0, 4, 2, 0, 3).  A dev build sorts before its own release
+    and after every earlier release.  None when it isn't dotted integers (optionally with a _devN suffix), so a
+    hand-edited or future marker format degrades to 'different', never to a false ordering."""
     if not text:
         return None
-    parts = text.strip().split(".")
+    text = text.strip()
+    dev = None
+    if "_dev" in text:
+        text, _, n = text.partition("_dev")
+        if not n.isdigit():
+            return None
+        dev = int(n)
+    parts = text.split(".")
     if not all(p.isdigit() for p in parts):
         return None
-    return tuple(int(p) for p in parts)
+    return tuple(int(p) for p in parts) + ((1, 0) if dev is None else (0, dev))
 
 
 def ensure_writable(paths):
