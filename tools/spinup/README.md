@@ -1,4 +1,4 @@
-# tools/spinup — the optional `--weapon-spinup-fix` variant
+# tools/spinup — weapon spin-up fix
 
 Developer tooling for `fix_weapon_spinup` in `ois_patcher.py`.
 
