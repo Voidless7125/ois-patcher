@@ -185,7 +185,7 @@ Keep all of these files together in the same folder:
 ## Personal variants (this branch only)
 
 This branch (`personal-variants`) is `master` plus the extras below, which live in `personal_variants.py`
-(a plugin `ois_patcher.py` loads when the file is next to it). The optional DLL update is on `master` too, not just here. None of them are on `master`: they are gameplay
+(a plugin `ois_patcher.py` loads when the file is next to it). None of them are on `master`: they are gameplay
 changes or fixes the upstream maintainer has not accepted. The patcher is versioned `X.Y.Z_devN` here.
 
 **Applied on every run** (there are no flags for these):
