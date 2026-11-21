@@ -37,12 +37,15 @@ def synthetic(assets):
         "news_t1.txt": "Publication: The Diwali Examiner\nDate: 1\n\nBody\n",
         "news_t2.txt": "Publication: The Diwali Examiner\r\nDate: 1\r\n\r\nBody\r\n",
         "news_t3.txt": "Publication: The Sentinel\nDate: 1\n\nBody\n",
+        # a stock article that already carries a (different) sector requirement: must stay exactly as it is
+        "news_theatrereviewtheproximacentauriplayers.txt": "Publication: The Penitent Times\nReq: in_sector_3\nDate: 1\n\nBody\n",
+        "news_t4.txt": "Publication: The Penitent Times\nDate: 1\nReq: in_sector_2\n\nBody\n",
         fixed_name: "Publication: The Galilean Post\n" + body,
     }
     for n, t in arts.items():
         with open(os.path.join(assets, n), "wb") as f:
             f.write(t.encode())
-    return set(arts) - {"news_t3.txt"}
+    return set(arts) - {"news_t3.txt", "news_theatrereviewtheproximacentauriplayers.txt", "news_t4.txt"}
 
 
 def main():
@@ -56,7 +59,9 @@ def main():
         for f in glob.glob(os.path.join(src, adf.ORIGINALS_DIRNAME, "news_*.txt")):
             shutil.copy(f, assets)
         regional = {os.path.basename(f) for f in glob.glob(os.path.join(assets, "news_*.txt"))
-                    if pv.local_news_line(open(f, encoding="utf-8").read())}
+                    if os.path.basename(f) not in pv.STOCK_SECTOR_FILES
+                    and pv.local_news_line(open(f, encoding="utf-8").read())
+                    and not pv._SECTOR_REQ.search(open(f, encoding="utf-8").read())}
     else:
         regional = synthetic(assets)
 
@@ -85,8 +90,10 @@ def main():
     check(all(len(on[k].splitlines()) == len(base[k].splitlines()) + 1 for k in changed), "each gained exactly one line")
     check(all(re.search(rb"^Req: in_sector_\d+\r?$", on[k], re.M) for k in changed), "the line is `Req: in_sector_<n>`")
     check(all(pv.strip_local_news(on[k].decode()).encode() == base[k] for k in changed), "stripping it gives the fixed text back")
-    check(all(b"in_sector_" not in open(os.path.join(backups, k), "rb").read() for k in changed if os.path.exists(os.path.join(backups, k))),
-          "the patcher's saved originals never contain the line")
+    check(all(not pv.has_local_news(open(os.path.join(backups, k), encoding="utf-8").read()) for k in changed
+              if os.path.exists(os.path.join(backups, k))), "the patcher's saved originals never contain the line")
+    check(all(on[k] == start[k] for k in ("news_theatrereviewtheproximacentauriplayers.txt", "news_t4.txt") if k in on),
+          "articles that already have their own sector requirement are left exactly as they are")
     run()
     check(snap() == on, "running again changes nothing")
     quiet(pv.begin_run, game, True)

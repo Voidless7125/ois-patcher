@@ -379,6 +379,13 @@ LOCAL_NEWS_SECTORS = {
     "The Sisters Post": 11,                                                                             # Two Sisters
 }
 _PUBLICATION = re.compile(r"^Publication:[ \t]*(.*?)[ \t]*\r?$", re.M)
+_SECTOR_REQ = re.compile(r"^Req:[ \t]*in_sector_\d+", re.M)
+# Five stock articles already carry their own `Req: in_sector_N` (found on the full game data).  They are event articles
+# (a theatre review that needs sector 3 although its paper is mapped to sector 1, ...), so a second, different sector
+# requirement would AND to "in two sectors at once" and the article would never appear.  Never touched, either way.
+STOCK_SECTOR_FILES = {"news_weunhappyfewwebandofsuckers.txt", "news_editorialonposttheatre.txt",
+                      "news_theatrereviewtheproximacentauriplayers.txt", "news_authoritiesbaffledbyactors.txt",
+                      "news_ilongedfordeathbeforeoedipusdid.txt"}
 
 
 def local_news_line(text):
@@ -390,30 +397,37 @@ def local_news_line(text):
     return m.group(0).rstrip("\r"), f"Req: in_sector_{LOCAL_NEWS_SECTORS[pubs[0]]}"
 
 
-def add_local_news(text):
-    """text with the regional line added (unchanged for a global article or one that already has it)."""
+def has_local_news(text):
+    """True when this plugin's line is present right after the Publication line."""
     hit = local_news_line(text)
     if hit is None:
+        return False
+    eol = "\r\n" if "\r\n" in text else "\n"
+    return hit[0] + eol + hit[1] in text
+
+
+def add_local_news(text):
+    """text with the regional line added (unchanged for a global article, one that already has it, or one that
+    already carries a sector requirement of its own)."""
+    hit = local_news_line(text)
+    if hit is None or _SECTOR_REQ.search(text):
         return text
     pub, req = hit
     eol = "\r\n" if "\r\n" in text else "\n"
-    if pub + eol + req in text:
-        return text
     return text.replace(pub, pub + eol + req, 1)
 
 
 def strip_local_news(text):
     """Exactly undoes add_local_news."""
-    hit = local_news_line(text)
-    if hit is None:
+    if not has_local_news(text):
         return text
-    pub, req = hit
+    pub, req = local_news_line(text)
     eol = "\r\n" if "\r\n" in text else "\n"
     return text.replace(pub + eol + req, pub, 1)
 
 
 def _news_files(game_dir):
-    return sorted((Path(game_dir) / "assets").glob("news_*.txt"))
+    return sorted(f for f in (Path(game_dir) / "assets").glob("news_*.txt") if f.name not in STOCK_SECTOR_FILES)
 
 
 def _rewrite_news(game_dir, fn):
@@ -441,14 +455,12 @@ def post_install(game_dir):
 
 
 def status_lines(game_dir):
-    n = sum(1 for f in _news_files(game_dir) if local_news_line(f.read_bytes().decode("utf-8"))
-            and add_local_news(f.read_bytes().decode("utf-8")) == f.read_bytes().decode("utf-8"))
+    n = sum(1 for f in _news_files(game_dir) if has_local_news(f.read_bytes().decode("utf-8")))
     return [f"  {'local news':<16} {f'{n} regional article(s) gated by sector' if n else 'not applied'}"]
 
 
 def uninstall_plan(game_dir):
-    if any(local_news_line(t) and add_local_news(t) == t for t in
-           (f.read_bytes().decode("utf-8") for f in _news_files(game_dir))):
+    if any(has_local_news(f.read_bytes().decode("utf-8")) for f in _news_files(game_dir)):
         return ["remove the local-news sector requirement from the news articles in assets/"]
     return []
 
