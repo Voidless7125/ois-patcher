@@ -185,6 +185,13 @@ try:
 except ImportError:
     apply_data_fixes = None
 
+# GOG build support (address table). Optional the same way: without it a GOG ois.exe simply skips the fixes whose bytes
+# do not match, as it did before this existed.
+try:
+    import gog_port
+except ImportError:
+    gog_port = None
+
 IMAGE_BASE = 0x400000
 FIXES_APPLIED = []
 FIXES_SKIPPED = []
@@ -4085,6 +4092,14 @@ def print_status(game_dir):
         print(f"  {name:<16} {status.describe()}{backup_note}")
         if status.state == STATE_PATCHED and status.version != PATCHER_VERSION:
             print(f"  {'':<16} -> run this script with no arguments to update it to v{PATCHER_VERSION}")
+    if gog_port is not None:
+        try:
+            _pe = pefile.PE(str(game_dir / GAME_EXE_NAME), fast_load=True)
+            if gog_port.is_gog_client(_pe):
+                print(f"  {'game build':<16} GOG (the GOG address table is used; newer fixes are Steam-only for now)")
+            _pe.close()
+        except (OSError, pefile.PEFormatError):
+            pass
     mod_dir = game_dir.joinpath(*MOD_DIR_RELATIVE)
     print(f"  {'bugfix mod':<16} {'installed at ' + str(mod_dir) if mod_dir.is_dir() else 'not installed'}")
     n = len(saved_originals(game_dir))
@@ -4650,6 +4665,15 @@ def main():
     pe = load_pe(data)
     pe.parse_data_directories()
 
+    gog = gog_port is not None and gog_port.is_gog_client(pe)
+    if gog:
+        # The GOG build is the same game compiled separately: every address differs. gog_port.py re-runs the fixes it has a
+        # table for at the GOG addresses and skips the rest (see that file); the Steam addresses are never used on it.
+        ported, failed = gog_port.install(sys.modules[__name__])
+        print("\nGOG build of ois.exe detected (not the Steam build): using the GOG address table.")
+        print(f"  {len(ported) + len(gog_port.NATIVE)} fix(es) are available for it; "
+              f"{len(gog_port.UNPORTED) + len(failed)} newer one(s) are not ported yet and will be skipped.")
+
     print("\nApplying fixes:")
     cave_cursor = VERSION_MARKER_SIZE  # first bytes of the cave are reserved for the version marker
     cave_cursor = fix_pirate_hunt(data, pe, ptch_va, ptch_off, cave_cursor)
@@ -4697,8 +4721,11 @@ def main():
     cave_cursor = fix_resolution_list_duplicates(data, pe, ptch_va, ptch_off, cave_cursor)
 
     # --- PLUGIN HOOK ---
-    cave_cursor = _plugin_call("apply_exe_fixes", data, pe, ptch_va, ptch_off, cave_cursor,
-                               server=False, default=cave_cursor)
+    if gog:
+        print("  [SKIP] personal_variants exe fixes: only written for the Steam build")
+    else:
+        cave_cursor = _plugin_call("apply_exe_fixes", data, pe, ptch_va, ptch_off, cave_cursor,
+                                   server=False, default=cave_cursor)
     # -------------------
     pe.close()
 
@@ -4728,6 +4755,10 @@ def main():
     else:
         print("ois_server.exe: not patched, see above (only matters for hosting/joining co-op games).")
     print(f"Bugfix mod: {'installed' if mod_installed else 'skipped, see above'}")
+    if gog:
+        print("GOG build: the fixes marked 'not ported yet' above are Steam-only for now. Note the LADAR id rename in the data "
+              "fixes is still applied, and the save-alias fix that goes with it is one of the unported ones, so an older save "
+              "with a LADAR installed may not open on GOG.")
     for line in dll_summary_lines() + (_plugin_call("summary_lines", default=[]) or []):
         print(line)
     print(f"\nPatched: {exe_path}")
