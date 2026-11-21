@@ -18,3 +18,4 @@ They fail (or error on a missing `ois_patcher` attribute) until the variant is r
 | `civ/test_civ` | `--civilians-comply` | removed in the same commit |
 | `spinup/test_spinup` | spin-up timer formula | implementation not in this branch |
 | `iffdebug/test_iff` | IFF debug cave | `IFF_DEBUG_CAVE` no longer in `ois_patcher.py` |
+- `tools/dll/test_dll_plugin.py [game folder]`: the plugin's optional DLL step (decline / accept / `--yes` / damaged package / uninstall) on a scratch copy. Passing.

@@ -155,250 +155,50 @@ Keep all of these files together in the same folder:
 
 ## Personal variants (this branch only)
 
-This branch (`personal-variants`) is `master` plus the extras below. None of them are on `master`:
-they are gameplay changes or fixes the upstream maintainer has not accepted.
+This branch (`personal-variants`) is `master` plus the extras below, which live in `personal_variants.py`
+(a plugin `ois_patcher.py` loads when the file is next to it). None of them are on `master`: they are gameplay
+changes or fixes the upstream maintainer has not accepted. The patcher is versioned `X.Y.Z_devN` here.
 
-- **Torpedo that loses its target drifts** (always applied on this branch): when the ship a torpedo
-  is homing on is destroyed, the torpedo no longer re-targets the nearest contact; it drifts and can be
-  re-targeted by hand (exe, client and server; `tools/torp/`).
-- **`--debug-iff`** (diagnostic, off by default): logs every change of an NPC ship's IFF flag to the debug
-  log as `IFFDBG <ship>: IFF <old> -> <new>, changed inside|outside the AI update`. Used to find out why some
-  ships (e.g. Leslie Garbut's SS Jolly Rancher in the intro) arrive with their IFF off (`tools/iffdebug/`).
-- **`--weapon-spinup-fix`** and **`--mechanic-armaments`** (optional, off by default): described below.
-- **`--pds-everything`** and **`--civilians-comply`**: optional flags, described below. Without
-  `--pds-everything` this branch applies the same point-defence fix as `master`; with it, the variant
-  below replaces that fix.
+**Applied on every run** (there are no flags for these):
 
-### Optional variant: weapon spin-up gets shorter with better parts (`--weapon-spinup-fix`)
+- **Torpedo that loses its target drifts** (exe, client and server; `tools/torp/`): when the ship a torpedo is homing on
+  is destroyed, it no longer re-targets the nearest contact; it drifts and can be re-targeted by hand.
+- **Hail guard** (exe, client and server; `tools/hail/`): the HAIL command checks your own comms module first. No comms
+  module, or one switched off, logs `Comms offline: cannot hail.` and refuses. Incoming hails are untouched.
+- **The mechanic sells the M-6 light torpedo and the TD-8 stellar probe** (exe + data; `tools/mech/`): `weapons.txt` defines
+  six launchable armaments but the stock mechanic only knows four. The TD-8's price is this project's own number.
+- **Regional news** (data, in place; `tools/news/`): news only reaches you from the star system a paper belongs to
+  (Magellan Courier in Magella, Tegan Mirror in Tega, and so on; 464 articles). Articles that already carry their own sector
+  requirement are left alone. Originals are kept in `oisbugfix_original_assets/` and `--uninstall` puts them back.
+  The paper-to-sector table is `LOCAL_NEWS_SECTORS` in `personal_variants.py`; edit it to taste.
 
-**Not a bug fix as far as the maintainers can prove, and off by default.** Every timer a module's
-efficiency touches is `base x (2 - e)` (`e` = efficiency / 100): grapple, hack, comms sync, countermeasure
-reload, point-defence reload, jump-drive spin-up, nav and helm boot. A weapon tube's spin-up is the one that
-isn't: it is `spinuptime x e x 0.5`, so better parts make a torpedo spin up *slower*. The jump drive uses the
-same field name and the same "spin up" button and does it the other way. There is no developer statement
-either way, and the fix cuts spin-up to roughly a third, so it is an opt-in rather than part of the standard
-patch.
+**Asked at run time:**
 
-```
-python ois_patcher.py --weapon-spinup-fix
-python tools/spinup/test_spinup.py <game dir>/ois.exe
-```
+- **Update the game's DLLs** (optional; see below).
 
-Seven places compute the figure (the timer start in `ShipModule::runLogic`, the progress bar's denominator
-in four UI/text functions and `doSetWeaponTarget`, and the timer restart in `Ship::fireWeapon`); all seven
-must agree, so each one's call to `getEfficiencyPercent` goes through one 13-byte stub that returns
-`200 - efficiency`. Client and server. Spin-up in game time units, by launcher:
+**Not carried over to this branch's plugin** (kept in git history and `tools/` for reference): the all-purpose point-defence
+variant (`tools/pds/`), civilians who give in (`tools/civ/`), the IFF debug log (`tools/iffdebug/`), the bounty save tool
+(`tools/save/add_bounties.py`). The weapon spin-up fix is no longer a variant: it is in `master` since 0.4.2.
 
-| Launcher | Tubes | spinuptime | Stock build, before -> after | Best parts, before -> after |
-|---|---|---|---|---|
-| MPL-060 | 2 | 26.5 | 16 -> 10 | 17 -> 8 |
-| PL-900 | 4 | 24 | 18 -> 5 | 20 -> 3 |
-| PL-920 | 4 | 21.5 | 17 -> 3 | 19 -> 1 |
-| SPL-5S | 6 | 17 | 11 -> 5 | 12 -> 4 |
-| SPL-9S | 8 | 20 | 14 -> 5 | 15 -> 4 |
+### Optional: update the game's DLLs (`dll_update.py`)
 
-Efficiency of 200% or more would make the figure zero or negative; no weapons module reaches that with legal parts.
+`dll_update.py` is a Python port of the core of [OIS-Update](https://github.com/Voidless7125/OIS-Update)'s `Patch_OIS.bat`.
+It replaces the game's bundled libraries (OpenAL, cocos2d, curl, ...) with the package's newer ones.
 
-### Optional variant: the mechanic sells the M-6 and the TD-8 (`--mechanic-armaments`)
+1. Get the package: on the OIS-Update page (branch `dev`) choose Code > Download ZIP and extract it. The extracted folder must
+   hold `manifest.txt` next to the DLLs. Name it `OIS-Update` (or leave it `OIS-Update-dev`).
+2. Put that folder next to `ois_patcher.py`, or inside the game folder, or beside the game folder. (Or set the environment
+   variable `OIS_UPDATE_DIR` to it.)
+3. Close the game and run `ois_patcher.py` as usual. When the package is found the patcher says so and asks
+   `Also update the game's DLLs from it? [y/N]`. `--yes` answers yes. No package means no question, and nothing is downloaded.
 
-**Not a bug fix, off by default.** `weapons.txt` defines six launchable armaments (M-10, M-12, E-10, TD-4,
-M-6, TD-8) but the station mechanic's Armaments tab only knows four. The game's own code indexes a four-entry
-table of weapon ids, and the screen has one button per entry. The M-6 ("a small missile often used by
-pirates") is only ever fitted to NPC ships; the TD-8 is only handed out by Dr Reiffel's quest. This variant
-adds both to the Armaments tab and to the list of prices above its buttons.
-
-```
-python ois_patcher.py --mechanic-armaments
-python tools/mech/test_mech.py <game dir>/ois.exe
-```
-
-What it changes:
-
-- **Exe (client and server):** the four instructions that index the id table are redirected to caves that
-  look the id up in a six-entry table, computed position-independently (the game does not load at its
-  preferred base, so a table of absolute pointers would need relocations). The countermeasure line in the
-  armament list, recognised by index 4, moves to index 6.
-- **`ui_x7.txt`:** the "Mechanix" screen gets two buttons, and its armament buttons move up to make room
-  (pitch 12, first one at y=140).
-- **`weapons.txt`:** the TD-8 gets a price (**350**; this project's own number, the game ships it with none)
-  and `canprobestar=true`. The game reads `canprobestar`, which makes a probe ignore heat damage, but the
-  file spells it `probestar`, so the "stellar survey probe" was never heat-proof.
-
-Selling pays half the base cost, so a TD-8 from Dr Reiffel now sells for 175. Not tested in the running game.
-
-### Optional, data only: screen features the game still has (`--ui-extras`, `--depots`)
-
-Neither changes the exe. Re-run with the same flags to keep them, like the other variants.
-
-**`--ui-extras`**
-- **Sensors AUTO button.** The commands `SENSOR_SET_AUTO` / `SENSOR_UNSET_AUTO` and the state `SENSORS_AUTO` are still in the exe,
-  and the UI lines were commented out in the Ceres, Enceladus and Remora files. While AUTO is on, the sensor screen keeps the
-  most dangerous contact selected (`getMostDangerousSensorObject`, "Auto-selected new object" in the debug log), and switching it on
-  turns off the LINK button's "keep the nav selection" flag. The commented-out lines sat on top of the LADAR button (Enceladus) or
-  inside the waveform display (the Ceres copy kept the Remora's row), so the button goes in the free space right of LADAR
-  (x=101) on every ship, including the Proxima, which uses the Ceres screens. `python tools/ui/check_extras.py <mod folder>`
-  checks that it overlaps nothing.
-- **Depot buttons on the Enceladus docking screen** (Repair Systems, Repair Hull, Buy CM, Buy Torpedo), copied from the
-  Ceres/Proxima screen, which already has them.
-- **Dev scenarios.** `scenarios.txt` has seven `#include` lines the developers switched off: `quickstart` (the main scenario past
-  the tutorial in an Enceladus), `combatceres`, `combatenceladus`, `combathard` (the "Stress Test", 8 pirates),
-  `testmulti` (two-ship multiplayer test) and `coop_escort_3` / `coop_escort_4` (the stock fix for its stray `X` is already part of this tool). All
-  the files ship with the game; this just includes them. They are dev content and never had a release pass, so expect rough edges.
-
-**`--depots` (experimental).** A depot is a `DP-9 Depot` station class (`type=depot`, "a standard support platform containing
-repair drone systems") with a `begin depot` sector block, the docking-screen buttons above and the code behind them: hull repair
-(5 credits per repair point), module repair, countermeasure refill, and a rearm that fills empty torpedo tubes with M-10s.
-No sector file uses it, so the buttons never show. This flag places one depot, 25 Gm from the first listed station, in each of the
-twelve main systems (`OP-DEPOT00` to `OP-DEPOT11`). The depot loader does not read `emissionstrength` the way stations and
-jumpgates do, so whether a depot can be seen and docked with is a guess. Nothing in the stock game ever places one.
-
-### Optional: hail guard (`--hail-guard`)
-
-`ShipInterface::doCommunicateWithSelected` (the HAIL command) checks that something is selected and has a comms channel, and
-never looks at your own comms module, so a ship with comms switched off (or no comms module) can still open a channel to an
-authority ship or a station. The 1.0.6 change log says outgoing hails were stopped while comms are disabled ("emergency or
-incoming only"); nothing in the handler does that. With this flag the handler first asks `SystemManager::getModule(0xe)`: no
-module, or one that is disconnected (the flag `doToggleComms` flips, `+0x63`), logs `Comms offline: cannot hail.` and returns
-false through the handler's own error exit. Incoming hails are untouched. Client and server exe.
-`python3 tools/hail/test_hail.py <ois.exe>` runs the real handler under emulation with the module missing, disconnected and
-connected (stock exe: all three go through; patched: the first two are refused, registers and stack restored).
-
-### Optional, data only: regional news (`--local-news`)
-
-The developers said (Steam forums, 14 Mar 2019) that news was meant to reach you only from the star system you are in, "on our
-list" but never shipped. The engine already supports it: an article's `Req:` lines are all required, and `in_sector_<id>` is true
-while you are in that sector (stories use it). This adds `Req: in_sector_<home sector>` to the articles of papers that belong to one
-place -- the Magellan Courier and Loaiso Herald (Magella), Penitent Times, Crassus Lens, Globe and Leon Marker (Leo), Tegan Mirror,
-Cansan Sentinel, Diwali Examiner, Galilean Post, The Lights (Sagan's Lights), Parssusian Worker and Age of Parssus (Parssus),
-Sisters Post -- 468 of 604 articles. An article appears the first time you are in its system on or after its date, then stays.
-The Sentinel, Inquirer, Suns, Libertarian, Free Press and the rest circulate everywhere and stay global.
-The table is `LOCAL_NEWS_SECTORS` in `apply_data_fixes.py`; edit it to taste. Matching is by name or where a paper's output is
-about one place (checked by counting place names per outlet), which is judgement, not game data. Side effect to know: a story that
-tells you to read a particular paper can be waiting on a system you have not visited yet.
-News files are edited in place (mods cannot override them), the originals are kept in `oisbugfix_original_assets/`, and running
-the patcher again without `--local-news` (or `--uninstall`) puts them back. `python3 tools/news/test_local_news.py <assets>` checks
-the on/off round trip on a copy.
-
-### Save tool: hold every bounty (`tools/save/add_bounties.py`)
-
-Not a patch: it writes a modified copy of one of your saves and never touches the original.
-
-    python tools/save/add_bounties.py "<ObjectsInSpace folder>" objects00.sav objects00_bounties.sav [--per-sector N] [--seed S]
-
-`assets/galaxy.txt` defines 2,933 bounties, but a save holds only the ones you accepted. This appends one accepted bounty per
-`bounty=` line (payout rolled from its dice, a new pirate ship name from `pirate_names.txt`, captain name and registration in the
-game's own style), copying the layout of `V12::writeBounty`. Whenever you are in a bounty's target sector and its registration is not
-there, the game spawns that pirate, so every bounty you hold for a sector spawns on arrival: up to 270 pirates in sectors 108 and
-114. `--per-sector 10` keeps it playable. Needs a save that already holds at least one bounty (an empty list can't be located).
-Written from the decompile and checked by re-reading the output; not played in the game.
-
-### Optional variant: a point-defence system that works (`--pds-everything`)
-
-This is **not a bug fix and is off by default.** It changes gameplay balance, so
-it is a separate opt-in rather than part of the standard patch.
-
-Without the flag this branch applies the same point-defence fix as `master` (the laser can destroy
-torpedoes, and still only shoots ships with their IFF off). With the flag, the variant below
-**replaces** that fix; the two are never applied together.
-
-```
-python ois_patcher.py --pds-everything
-```
-
-**Why the stock PDS never stops a torpedo.** From the decompiled code, in order of
-importance:
-
-1. **The shot does nothing to a torpedo.** The PDS "hits" by calling the same
-   `Ship::damage` routine used for ships, and that routine returns immediately for
-   vessel type 4 (torpedoes, probes, mines). Torpedoes can be *selected* but never
-   *hurt*. That is the real bug.
-2. **It only picks the first thing in range.** Selection walks the sector's vessel
-   list and returns the first one that has its IFF transponder off or is a weapon,
-   so a nearer no-IFF ship wins over an incoming torpedo.
-3. **Even when it can hurt something it usually misses.** It must roll a 1 on the
-   module's hit dice (`hitchance=1d6` on the PDL 101), once per reload.
-
-**What the variant changes**
-
-- Targets, in priority order: **hostile torpedoes, probes and mines** first, then
-  **ordinary ships whose IFF transponder is off**, then **enemy countermeasure decoys**.
-- Never targeted: **ships with their IFF on**, **space stations and jump gates**, **ships that are docked**,
-  **your own ship**, and **your own torpedoes/probes/mines/decoys**.
-- A locked torpedo is simply destroyed (no hit roll, and no warhead blast at
-  point-blank range). Ships still take the stock heat damage and still need the hit
-  roll; a destroyed decoy's timer is expired so the game removes it.
-- It applies to `ois.exe` **and** `ois_server.exe`, and to NPC ships' PDS modules too.
-
-**Things to know before using it**
-
-- It leaves ships with their IFF on alone, but fires on any ship with its transponder off,
-  friendly or not. Docked ships and stations are also left alone.
-- Throughput is still limited by the module's own range, power and reload time, so a
-  large salvo can overwhelm it.
-- The caves are emulation-tested (`tools/pds/test_pds_everything.py`), but nobody has watched a
-  torpedo get shot down in the live game yet. Report what you see.
-- The variant is recorded in the exe's version marker (`v0.4.0+pds`). Running the
-  patcher with or without the flag later switches between the two through the normal
-  restore-and-repatch, after asking. `--uninstall` removes either.
-
-### Optional variant: civilians who give in (`--civilians-comply`)
-
-Also **not a bug fix and off by default.** It combines with `--pds-everything` (the
-exe records both: `v0.4.0+pds+civ`).
-
-```
-python ois_patcher.py --civilians-comply
-```
-
-**What the stock game does** (decompiled `ShipBehaviour::respondToPirateDemand`, run
-when you pick "Drop your cargo or be fired upon." on a hail):
-
-- A civilian rolls `rand()%100+1 <= chance`. The base chance is looked up by the
-  captain's **style** - the `captainstyle=` value in the scenario data, or a random one
-  for generated traffic: **cautious 100 %, moderate 90 %, reckless 60 %, very reckless
-  15 %**. (Style is a combat personality in the data files: how far the captain runs the
-  battery down and at what firing solution. The developers reused it here.) **The roll
-  does not look at how much cargo they carry, what it is worth, or whether they smuggle.**
-- If your **IFF is on** it is forced to **2 %** ("You realise your IFF is on?"); beyond
-  120 units it is cut to two thirds, beyond 180 units to 5 %. A very reckless captain at
-  mid range is therefore about 10 %.
-- If the civilian's *own sensors* hold a weapon contact within 100 units, the chance
-  becomes the table value x 1.5 (max 100). Otherwise a failed roll says **"We'll
-  believe it when we see a torpedo."** - whether or not you have just fired one that
-  the civilian cannot see yet.
-- The first thing it does is add your registration to a list kept on the civilian.
-  `PrivateCommsManager::switchTo` refuses to open a conversation with any ship whose
-  list contains you, so after **one** demand - complied with or not - **you can never
-  hail that ship again.**
-- When a civilian does comply it jettisons one random non-empty pod. With an empty hold
-  it still says "We are complying" and drops nothing.
-
-**What the variant changes**
-
-1. The chance table becomes **cautious 100 %, moderate 90 %, reckless 70 %, very
-   reckless 35 %** (reckless +10, very reckless +20; the two cautious tiers are already
-   near-certain and are left alone).
-2. A torpedo, probe or mine **you launched that is still in flight within 250 units**
-   of the civilian counts as "seen", whatever the civilian's sensors say, so it gets
-   the x 1.5 boost instead of the "believe it when we see a torpedo" refusal.
-3. Your registration is **no longer added to the civilian's list**, so you can keep
-   hailing it (and demanding again).
-
-Unchanged: the dice, the IFF-on rule and distance penalties, pirates, authorities,
-and everything about NPC ships that are not civilians. Applies to `ois.exe` and
-`ois_server.exe`.
-
-**Things to know**
-
-- An earlier build of this variant used 100/100/90/60, which made nearly every
-  civilian comply; this is the toned-down version.
-- A torpedo that has already hit, been shot down or timed out does not count; only one
-  still in flight does. With your IFF on and no torpedo near, the chance is still 2 %.
-- Being able to re-hail means you can demand repeatedly and strip a civilian's cargo
-  pods one by one. That is the point, but it is more generous than the stock design.
-- Making the chance depend on cargo amount, value or smuggling would be a new mechanic
-  rather than a tweak; it is not in this variant.
-- Tested in a CPU emulator (`tools/civ/test_civ.py`), not yet seen in the live game.
+Every file is checked against the package's `manifest.txt` first (an incomplete or altered package is refused), the originals
+go to `oisbugfix_original_dlls/` once, and the copy is re-verified. The DLLs are copied last, after the exe and data fixes, so a
+failed exe patch never leaves half an update behind. `--status` shows the DLL version and whether Steam has reverted any file,
+and `--uninstall` puts the original DLLs back. Steam's "Verify integrity of game files" reverts them; just run the patcher
+again. It deliberately skips what `Patch_OIS.bat` does with admin rights or the network (firewall rules, the repair task, the
+install ping). `python3 tools/dll/test_dll_plugin.py [game folder]` runs the whole cycle (no package, decline, accept, already
+current, `--yes`, damaged package, uninstall) on a scratch folder.
 
 ## Limitations, Liability, & License
 

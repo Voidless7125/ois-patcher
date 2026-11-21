@@ -18,7 +18,7 @@ All notable changes to the **Objects in Space — Unofficial Bugfix Patch** are 
 - Fix for emcom modes not saving on ship undocks and redocks
 - Fix for game fps not recovering after being idle in game for too long
 - Opening a ships module while docking will force turn it on, even while you are using it.
-- New dll plugin avabile (Made by voidless7125)
+- **DLL update step:** if an `OIS-Update` package folder is found (next to the patcher, in or beside the game folder, or `OIS_UPDATE_DIR`), the patcher asks whether to refresh the game's DLLs from it (`--yes` says yes; no package, no question; nothing is downloaded). Verified against the package's manifest, originals backed up, shown in `--status`, restored by `--uninstall`. `tools/dll/test_dll_plugin.py` tests the cycle.
 - Fix for screen rez button not working as intended
 - More grammer fixes
 - New changelog system
