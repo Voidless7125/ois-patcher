@@ -22,7 +22,6 @@ If this file exists, ois_patcher.py will automatically detect and load it.
    to prevent circular import errors when the script starts up.
 """
 import re
-import sys
 import struct
 from pathlib import Path
 
@@ -443,125 +442,30 @@ def _rewrite_news(game_dir, fn):
     return n
 
 
-# ============================================================
-# Optional DLL refresh (dll_update.py, a port of OIS-Update's Patch_OIS.bat).
-# Only offered when an OIS-Update package is actually on disk: an `OIS-Update` (or `OIS-Update-dev`) folder
-# next to ois_patcher.py, in or beside the game folder, or the folder named by %OIS_UPDATE_DIR%.  Nothing is
-# downloaded.  The player is asked once, before anything is patched; --yes answers yes.  The DLLs are copied
-# after the rest of the install, so a failed exe patch never leaves half an update behind.
-# ============================================================
-
-_dll = {"pkg": None, "go": False, "result": None}
-
-
-def _dll_module():
-    try:
-        import dll_update
-    except ModuleNotFoundError as e:
-        if e.name != "dll_update":
-            raise
-        return None
-    return dll_update
-
-
-def _dll_current(du, game_dir, pkg):
-    return all((game_dir / n).is_file() and du.sha256_file(game_dir / n) == s for n, s in pkg.game)
-
-
-def _dll_ask(game_dir, assume_yes):
-    du = _dll_module()
-    _dll.update(pkg=None, go=False, result=None)
-    if du is None:
-        return
-    game_dir = Path(game_dir)
-    du.add_search_dir(game_dir)
-    pkg = du.find_local_package()
-    if pkg is None:
-        return
-    missing, bad = du.check_package(pkg)
-    print(f"\nOIS-Update package {pkg.version} found at {pkg.root}")
-    if missing or bad:
-        print(f"  [SKIP] It is incomplete ({len(missing)} missing, {len(bad)} with the wrong SHA256); "
-              "the DLLs will not be touched.")
-        return
-    if _dll_current(du, game_dir, pkg):
-        print("  The game's DLLs already match it; nothing to do.")
-        return
-    print("  It replaces the game's bundled DLLs with newer ones (originals are backed up to "
-          f"{du.BACKUP_DIRNAME}/ and put back by --uninstall).")
-    if assume_yes:
-        go = True
-    elif sys.stdin.isatty():
-        try:
-            go = input("  Also update the game's DLLs from it? [y/N]: ").strip().lower() in ("y", "yes")
-        except (EOFError, KeyboardInterrupt):
-            print()
-            go = False
-    else:
-        print("  [SKIP] Not an interactive session; re-run with --yes to apply it.")
-        go = False
-    _dll.update(pkg=pkg if go else None, go=go)
-
-
-def _dll_install(game_dir):
-    if not _dll["go"]:
-        return
-    du = _dll_module()
-    print("\nUpdating the game's DLLs...")
-    ok = du.install(Path(game_dir), package=_dll["pkg"])
-    _dll["result"] = ok
-    print(f"  [{'OK' if ok else 'FAILED'}] DLL update" + ("" if ok else " (see above; the game's other fixes are unaffected)"))
-
-
 def begin_run(game_dir, assume_yes=False, **kwargs):
     n = _rewrite_news(game_dir, strip_local_news)
     if n:
         print(f"  (local news: lifted from {n} article(s) before patching; re-added afterwards)")
-    _dll_ask(game_dir, assume_yes)
 
 
 def post_install(game_dir):
     n = _rewrite_news(game_dir, add_local_news)
     if n:
         print(f"  [OK] Local news: {n} regional article(s) now need you to be in their system")
-    _dll_install(game_dir)
-
-
-def summary_lines():
-    if not _dll["go"]:
-        return []
-    return [f"DLL update: {'applied' if _dll['result'] else 'FAILED, see above'}"]
 
 
 def status_lines(game_dir):
     n = sum(1 for f in _news_files(game_dir) if has_local_news(f.read_bytes().decode("utf-8")))
-    lines = [f"  {'local news':<16} {f'{n} regional article(s) gated by sector' if n else 'not applied'}"]
-    du = _dll_module()
-    if du is not None:
-        du.add_search_dir(game_dir)
-        lines += du.status_lines(game_dir)
-        pkg = du.find_local_package()
-        if pkg is not None and not _dll_current(du, Path(game_dir), pkg):
-            lines.append(f"  {'':<16} OIS-Update {pkg.version} is available at {pkg.root}; run the patcher to apply it")
-    return lines
+    return [f"  {'local news':<16} {f'{n} regional article(s) gated by sector' if n else 'not applied'}"]
 
 
 def uninstall_plan(game_dir):
-    plan = []
     if any(has_local_news(f.read_bytes().decode("utf-8")) for f in _news_files(game_dir)):
-        plan.append("remove the local-news sector requirement from the news articles in assets/")
-    du = _dll_module()
-    if du is not None:
-        du.add_search_dir(game_dir)
-        plan += du.uninstall_plan(game_dir)
-    return plan
+        return ["remove the local-news sector requirement from the news articles in assets/"]
+    return []
 
 
 def uninstall(game_dir, keep_backups=False):
     n = _rewrite_news(game_dir, strip_local_news)
     print(f"  removed the local-news requirement from {n} article(s)")
-    du = _dll_module()
-    if du is not None:
-        du.add_search_dir(game_dir)
-        return bool(du.uninstall(Path(game_dir), keep_backups))
     return True
