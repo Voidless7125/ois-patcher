@@ -22,6 +22,7 @@ confirmed them in a live game yet.
 | Mail terminal crash with `DEL`, `DEL DIR`, `DEL VIEW` and other names with no extension | Missing extension handling | Guarded, and `.COM` files still cannot be deleted | 0.1.0 (refined 0.4.0) |
 | Game crash on equipping a MKX-LADAR-A-2 or MKX-LADAR-A-T, and on connecting in co-op with one | Their 10-character ids were cut off in a 10-byte network field | Ids shortened (`mkxladr2`, `mkxladrt`) | 0.3.3 |
 | Saves with those LADARs no longer opened after the rename | The old ids were unknown | The old ids are accepted as aliases (client and server) | 0.4.2 |
+| Mail terminal crashed opening an email that does not exist | The email list was indexed with no bounds check | An out-of-range index is ignored | 0.4.2 |
 | Enter on an empty News list showed `Invalid article number: 747614849` | Out-of-range read | Range checked | 0.4.0 |
 | "Escort: Make a Break" co-op scenario would not load | A one-character typo in an include | Corrected | 0.1.0 |
 | "Quit to Menu" or "Quit to OS" froze or did nothing when you were a LAN client | The client was never disconnected | Disconnects first | 0.3.6 |
@@ -88,6 +89,7 @@ confirmed them in a live game yet.
 | Mouse wheel could not zoom back out of cabin close-ups (posters, desk PC) | Only screens handled it | Handled | 0.3.7 |
 | Station terminal typing clicks and beeps swapped depending on where you loaded | Sounds were attached to the wrong object | Fixed, then refined for button beeps | 0.3.8, 0.3.9 |
 | Audible "Unknown room" `[ERROR]` spam when cycling past a ship's last room | Logged as an error | Silenced | 0.2.0 |
+| `Unable to parse line '' in config file` in the log on every launch | The file's trailing newline made an empty last "line" | Empty lines are skipped, real bad lines still reported | 0.4.2 |
 | Music player stopped working after a few tracks | Leaked sound handles | Released | 0.1.0 |
 | Infopedia list and text pane cut the bottom row in half | Heights not a whole number of rows | Trimmed | 0.4.0 |
 | Dead `?` and log buttons on the square Comms Download terminal | `hasmenu=true` on a screen with no menu | Cleared | 0.4.0 |
@@ -131,7 +133,6 @@ C1 and T0), and tied sensors always land in the same band, so a perfect 2-2-2-2-
 
 ## Known and not yet fixed
 
-Reported, but not fixed in this patch: changing rooms with critical hull damage can crash; the mail terminal can crash on a nonexistent
-email; emission-control states are not remembered across docking; civilians do not react to torpedoes; hailing and dropping cargo for
+Reported, but not fixed in this patch: changing rooms with critical hull damage can crash; emission-control states are not remembered across docking; civilians do not react to torpedoes; hailing and dropping cargo for
 civilians; the default IFF; sensor ghosts stay after sensors are disabled; the skip-intro white screen; the config file being
 regenerated; audio device changes needing a restart; the touch input offset in fullscreen at 100% and 150% scaling.

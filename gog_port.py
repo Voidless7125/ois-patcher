@@ -144,6 +144,8 @@ UNPORTED = {
     "fix_solar_range_rating": "Shop: solar-wing Range rating",
     "fix_sensor_ratings": "Shop: sensor page ratings and software version",
     "fix_resolution_list_duplicates": "Options: one resolution entry per size",
+    "fix_mail_select_out_of_range": "Mail terminal: opening a missing email no longer crashes",
+    "fix_config_blank_line_log": "Config load: no log line for the trailing empty line",
 }
 
 LO, HI = 0x401000, 0x700000
