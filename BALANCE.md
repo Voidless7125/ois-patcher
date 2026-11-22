@@ -40,7 +40,7 @@ Grades are my judgement of how well price tracks performance.
 | Jump drives | B+ | The best-priced class. Price per range varies only 1.4x. Still, DVJD-600 (3802, range 220, spin-up 21, power 16) beats DVJD-400 (4277, 160, 30, 20) and DVJD-500 on every nominal stat while costing less; KIJD-140S is beaten by KIJD-10 and KIJD-20 at the same price. |
 | Generators | B | Price follows output well (correlation 0.85). MkIV makes 6 for the same 5904 that buys 4 from the MkVI. The Model One makes 3.5 for 5412 against MkIX's 4 for 4510, but it emits a third as much, which is a fair stealth trade. |
 | Batteries | B- | Price tracks capacity (0.82). GG8 (20 capacity, 1800) is beaten by RS8 (39 for 1782); EB20 costs more than EB30 for less. |
-| Sensors | B- | Priced by series, which roughly follows quality (0.71). The T0 and T9 sensors are the cheap, good ones; the Cosmos C1 costs the same as the C5 and M-series for lower quality or fewer ghosts. |
+| Sensors | B- | Priced by series, which roughly follows quality (0.71). The Cosmos C1 costs the same as the C5 and the M-series for lower quality, and the T0 and T9 are the cheap ones with the long ghost timers. |
 | Helm | C+ | Price tracks efficiency (0.89), though C-HLM1 and T-HLM4 are beaten by their siblings. The helm has no other stat to compare. |
 | Main drives | C | GX_DELTA (thrust 1.1, base 2871) is worth about 2,300 per unit of thrust; GS-MDP (0.2, 2320) about 10,500. GX-ONE is beaten by GX-ASTRAL at the same price (thrust 0.6 vs 0.8, power 14 vs 10, emissions 170 vs 140) and KI-MDP by KI-BEHEMOTH, which is cheaper and better. The dearest drives (KI series, 3828) are not the strongest. |
 | RCS | C- | RCSYS-KSM rotates at 50 for a base of 2505; RCSYS-KS rotates at 15 for 3036, about 4x worse value. |
@@ -51,7 +51,7 @@ Grades are my judgement of how well price tracks performance.
 | Navigation | D | All twelve have the same plot time (10). The price (2088 to 3480) buys a screen skin, efficiency and power draw, nothing else. CNM/2 at 3480 has the lowest efficiency and highest power of the colour ones; NV/T1, T2 and T4 at 3190 are better in every way. |
 | Point defence | D | Price falls as quality rises (-0.26). The PDL series is the dearest (4235) for the shortest range (5 to 7) and the slowest reload; PSL 10X (3150) has the same 1-in-5 hit chance as PDL 111 (4235) with range 16 against 6. SDS 55L is worth about a third of PDL 101 per unit of output. |
 | Countermeasures | D | Price barely moves (2871 to 3190) for 2 to 10 tubes. PCM/9 is a 2-tube launcher at the same 3190 as CM/42's 6 tubes, and about 4.6 times worse value than SC/90. |
-| Weapons | D | Five-fold difference in tubes at overlapping prices. MPL-010 (1 tube, base 2088) is worth roughly a tenth of SPL-9S (8 tubes, 2610). Ignoring power, 12 of the 16 launchers are beaten on price, tubes and spin-up by another one (for example every PL and PSP launcher by an SPL). This ignores the ammunition each launcher takes, which the module file does not say. |
+| Weapons | D | One to eight tubes at overlapping prices. MPL-010 (1 tube, base 2088) is worth roughly a tenth of SPL-9S (8 tubes, 2610). Ignoring power, 12 of the 16 launchers are beaten on price, tubes and spin-up by another one (for example every PL and PSP launcher by an SPL). This ignores the ammunition each launcher takes, which the module file does not say. |
 
 ## Efficiency: min and max by module
 
