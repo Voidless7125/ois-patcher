@@ -20,3 +20,4 @@ They fail (or error on a missing `ois_patcher` attribute) until the variant is r
 | `iffdebug/test_iff` | IFF debug cave | `IFF_DEBUG_CAVE` no longer in `ois_patcher.py` |
 - `tools/dll/test_dll_step.py`: the optional DLL update step (offline, fake package). Passing.
 - `tools/gog/test_gog_port.py`: the GOG address table against the current patcher source (translates, classified, GOG/Steam dispatch). Passing.
+- `tools/balance/test_rebalance.py [assets]`: the optional price rebalance (synthetic, plugin prompts and flag, and on the real files). Passing.

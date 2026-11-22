@@ -22,6 +22,7 @@ If this file exists, ois_patcher.py will automatically detect and load it.
    to prevent circular import errors when the script starts up.
 """
 import re
+import sys
 import struct
 from pathlib import Path
 
@@ -442,30 +443,92 @@ def _rewrite_news(game_dir, fn):
     return n
 
 
+# ============================================================
+# Optional module price rebalance (rebalance.py, analysis in BALANCE.md).  Asked once per run, before anything is
+# patched.  The answer is remembered in a flag file in the game folder so later runs (updates) keep it: with the flag
+# present the question is "keep it? [Y/n]", without it "apply it? [y/N]".  --yes keeps an existing choice but never
+# turns it on; OIS_REBALANCE=1 in the environment turns it on for an unattended run.  The repriced module files live in
+# the oisbugfix mod folder, so --uninstall (which removes that folder) puts every price back.
+# ============================================================
+
+REBALANCE_FLAG = "oisbugfix_rebalance.flag"
+_rebalance = {"on": False}
+
+
+def _rebalance_ask(game_dir, assume_yes):
+    import os
+    flag = Path(game_dir) / REBALANCE_FLAG
+    had = flag.is_file()
+    on = False
+    if os.environ.get("OIS_REBALANCE") == "1":
+        on = True
+    elif assume_yes or not sys.stdin.isatty():
+        on = had
+    else:
+        print("\nModule prices (personal variant): prices follow what a module does instead of its series. "
+              "Same average price per class; see BALANCE.md.")
+        try:
+            ans = input(f"  {'Keep the module price rebalance? [Y/n]' if had else 'Apply the module price rebalance? [y/N]'}: ").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            ans = ""
+        on = (ans in ("", "y", "yes")) if had else ans in ("y", "yes")
+    _rebalance["on"] = on
+
+
+def _rebalance_apply(game_dir):
+    flag = Path(game_dir) / REBALANCE_FLAG
+    if not _rebalance["on"]:
+        if flag.is_file():
+            flag.unlink()
+        return
+    import rebalance
+    from ois_patcher import MOD_DIR_RELATIVE
+    game_dir = Path(game_dir)
+    mod_dir = game_dir.joinpath(*MOD_DIR_RELATIVE)
+    if not mod_dir.is_dir():
+        print("  [SKIP] Module price rebalance: the bugfix mod folder is missing (see above).")
+        return
+    n = rebalance.apply(game_dir / "assets", mod_dir)
+    flag.write_text("module prices rebalanced by personal_variants (rebalance.py)\n", encoding="utf-8")
+    print(f"  [OK] Module price rebalance: {n} module(s) repriced")
+
+
 def begin_run(game_dir, assume_yes=False, **kwargs):
     n = _rewrite_news(game_dir, strip_local_news)
     if n:
         print(f"  (local news: lifted from {n} article(s) before patching; re-added afterwards)")
+    _rebalance_ask(game_dir, assume_yes)
 
 
 def post_install(game_dir):
     n = _rewrite_news(game_dir, add_local_news)
     if n:
         print(f"  [OK] Local news: {n} regional article(s) now need you to be in their system")
+    _rebalance_apply(game_dir)
 
 
 def status_lines(game_dir):
     n = sum(1 for f in _news_files(game_dir) if has_local_news(f.read_bytes().decode("utf-8")))
-    return [f"  {'local news':<16} {f'{n} regional article(s) gated by sector' if n else 'not applied'}"]
+    on = (Path(game_dir) / REBALANCE_FLAG).is_file()
+    return [f"  {'local news':<16} {f'{n} regional article(s) gated by sector' if n else 'not applied'}",
+            f"  {'price rebalance':<16} {'applied' if on else 'not applied'}"]
 
 
 def uninstall_plan(game_dir):
     if any(has_local_news(f.read_bytes().decode("utf-8")) for f in _news_files(game_dir)):
-        return ["remove the local-news sector requirement from the news articles in assets/"]
-    return []
+        plan = ["remove the local-news sector requirement from the news articles in assets/"]
+    else:
+        plan = []
+    if (Path(game_dir) / REBALANCE_FLAG).is_file():
+        plan.append("put the module prices back (they live in the bugfix mod folder, which is removed)")
+    return plan
 
 
 def uninstall(game_dir, keep_backups=False):
     n = _rewrite_news(game_dir, strip_local_news)
     print(f"  removed the local-news requirement from {n} article(s)")
+    flag = Path(game_dir) / REBALANCE_FLAG
+    if flag.is_file():
+        flag.unlink()
     return True

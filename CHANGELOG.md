@@ -14,6 +14,7 @@ All notable changes to the **Objects in Space — Unofficial Bugfix Patch** are 
 
 ### [Upcoming] - TBD
 
+- **Module price rebalance** (personal variant, asked at run time): `rebalance.py` reprices the 126 shop modules so a module's price follows its output (a weighted score of its stats), keeping each class's average price. Analysis and the before/after table are in `BALANCE.md`; `tools/balance/test_rebalance.py` tests it. Stats and components are not touched.
 - Dev builds are now versioned `X.Y.Z_devN` (this branch is `0.4.2_dev1`). A dev build sorts before its own release and after every earlier one, so the patcher updates a dev install to the release and never mistakes a dev build for a downgrade.
 - Fix for emcom modes not saving on ship undocks and redocks
 - Fix for game fps not recovering after being idle in game for too long

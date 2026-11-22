@@ -26,7 +26,7 @@ Not well balanced, but unevenly so. Two things are done well and one thing is no
 | :--- | :--- | :--- |
 | Efficiency of a configuration | `100 + sum(efficiencymodifier)` of the installed components (`ComponentInterfaceInstance::getEfficiencyPercent`). The `asets`/`bsets` "step" values are 0 in every interface, so no other term applies. | Good. Read from the decompile; the results (110 to 237%) look like the efficiencies the game shows. Components are taken at full health. |
 | Price | `basevalue + sum(component basecost)` (`ShipModule::getValue`) | Good for the module itself. I did not trace any shop mark-up or the sell price. |
-| Output | the module's own stat, scaled by efficiency where the game does (thrust, jump range, rotation rate), otherwise taken as stated | Fair. Weapons use tubes / spin-up and ignore the ammunition. Sensors, comms and navigation have little to compare. |
+| Output | the module's own stat, scaled by efficiency where the game does (thrust, jump range, rotation rate), otherwise taken as stated | Fair. Weapons use tubes / spin-up (a launcher takes any torpedo). Sensors, comms and navigation have little to compare. |
 | Power and emissions | compared as stated per module, not folded into price | A cheap module that burns more power is not wrong, so "dominated" below means worse on every listed stat |
 
 Left out: the LADAR modules (the shop generator deliberately excludes them) and the NPC modules (`basevalue=0`).
@@ -51,7 +51,7 @@ Grades are my judgement of how well price tracks performance.
 | Navigation | D | All twelve have the same plot time (10). The price (2088 to 3480) buys a screen skin, efficiency and power draw, nothing else. CNM/2 at 3480 has the lowest efficiency and highest power of the colour ones; NV/T1, T2 and T4 at 3190 are better in every way. |
 | Point defence | D | Price falls as quality rises (-0.26). The PDL series is the dearest (4235) for the shortest range (5 to 7) and the slowest reload; PSL 10X (3150) has the same 1-in-5 hit chance as PDL 111 (4235) with range 16 against 6. SDS 55L is worth about a third of PDL 101 per unit of output. |
 | Countermeasures | D | Price barely moves (2871 to 3190) for 2 to 10 tubes. PCM/9 is a 2-tube launcher at the same 3190 as CM/42's 6 tubes, and about 4.6 times worse value than SC/90. |
-| Weapons | D | One to eight tubes at overlapping prices. MPL-010 (1 tube, base 2088) is worth roughly a tenth of SPL-9S (8 tubes, 2610). Ignoring power, 12 of the 16 launchers are beaten on price, tubes and spin-up by another one (for example every PL and PSP launcher by an SPL). This ignores the ammunition each launcher takes, which the module file does not say. |
+| Weapons | D | One to eight tubes at overlapping prices. MPL-010 (1 tube, base 2088) is worth roughly a tenth of SPL-9S (8 tubes, 2610). Ignoring power, 12 of the 16 launchers are beaten on price, tubes and spin-up by another one (for example every PL and PSP launcher by an SPL). Launchers take any kind of torpedo (confirmed by the game's owner), so tubes and spin-up are what separate them. |
 
 ## Efficiency: min and max by module
 
@@ -77,7 +77,168 @@ Not done, and only a starting point. The pattern that would fix most of it:
 3. Leave the component economy alone. It is the part that works.
 4. Give navigation computers and helms a stat to buy (plot time, turning precision), or make their price flat and cheap.
 
-## Per-module table
+## The rebalance (optional, `rebalance.py`)
+
+`personal_variants.py` offers it when you run the patcher (`Apply the module price rebalance? [y/N]`; `--yes` keeps an earlier
+choice but never turns it on, `OIS_REBALANCE=1` turns it on unattended). It only edits `basevalue` in the module files, inside the
+`oisbugfix` mod folder, so `--uninstall` puts every price back. Nothing about the modules' stats or the components changes.
+
+How each new price is worked out, per class:
+
+1. A **score** from the module's own stats: a weighted geometric mean, where higher output counts for and a higher power draw,
+   emission or reload counts against (weights are in `SCORE` in `rebalance.py`: for example weapons are 75% tubes per second,
+   15% high power draw, 10% idle power draw).
+2. **Price = class average price x (score / class average score) ^ STRENGTH**, kept between 0.4x and 2.0x the class average,
+   then scaled so the class average price is exactly what it was.
+
+So a class costs the same on average, and inside it a module that does twice as much costs about twice as much. `STRENGTH` at the
+top of `rebalance.py` is 1.0; set 0.5 for a gentler version (0 changes nothing). Efficiency comes from the components, which
+already carry their own price, so it is not in the score. Classes with nothing to price (helm, LADAR, NPC modules) are untouched.
+Sensors count a longer ghost timer (fewer ghosts) as better, which is my reading, and navigation computers are priced by screen
+(only the full-colour ones tell nebula kinds apart) and power draw, since every one plots in the same time.
+
+Effect on value (price per unit of efficiency-adjusted score, `new` configuration, worst module against best): maindrives 2.5x to
+1.4x, weapons 5.5x to 2.2x, countermeasures 3.1x to 1.3x, RCS 2.8x to 1.6x, point defence 2.7x to 1.2x, solar 2.3x to 1.1x,
+batteries 2.2x to 1.2x, navigation 2.3x to 1.3x, hackers 2.0x to 1.1x, generators 1.6x to 1.2x, jump drives 1.4x to 1.1x.
+What it cannot fix: the efficiency each module gets from its own components, and the cost of those components.
+
+Judgement calls worth a second look before you play with it: RCSYS-KSM goes up 78% (it turns at 50 where the rest do 12 to 35) and
+GX_DELTA up 65% (thrust 1.1 where the next best is 0.8), because they are the outliers, not because I think they should be
+expensive. If a price looks silly, the class score weights are the place to change.
+
+`python3 tools/balance/test_rebalance.py <assets>` checks that only `basevalue` lines change, each class keeps its average price,
+a module with a higher score never costs less, and a second run changes nothing.
+
+| Class | Module | Base before | Base after | Change |
+| :--- | :--- | ---: | ---: | ---: |
+| maindrive | GX-ONE | 3,190 | 2,980 | -7% |
+| maindrive | GX_DELTA | 2,871 | 4,740 | +65% |
+| maindrive | GX-ASTRAL | 3,190 | 3,940 | +24% |
+| maindrive | GS-MDP | 2,320 | 1,660 | -28% |
+| maindrive | GS-MDP-2 | 2,320 | 2,880 | +24% |
+| maindrive | GS-APOLLO | 2,552 | 2,760 | +8% |
+| maindrive | KI-ORCHID | 3,828 | 2,500 | -35% |
+| maindrive | KI-MDP | 3,828 | 2,820 | -26% |
+| maindrive | KI-BEHEMOTH | 3,445 | 3,250 | -6% |
+| generators | MkIV | 5,904 | 7,060 | +20% |
+| generators | MkV | 5,904 | 5,960 | +1% |
+| generators | MkVI | 5,904 | 4,880 | -17% |
+| generators | MkVII | 4,510 | 4,050 | -10% |
+| generators | MkVIII | 4,510 | 3,880 | -14% |
+| generators | MkIX | 4,510 | 4,710 | +4% |
+| generators | Model One | 5,412 | 5,270 | -3% |
+| generators | MkVII | 5,412 | 5,730 | +6% |
+| generators | MkVIII | 5,412 | 5,940 | +10% |
+| batteries | T100 | 2,400 | 2,110 | -12% |
+| batteries | R100 | 2,160 | 2,240 | +4% |
+| batteries | X100 | 2,160 | 2,730 | +26% |
+| batteries | EB10 | 2,400 | 2,610 | +9% |
+| batteries | EB20 | 2,904 | 2,690 | -7% |
+| batteries | EB30 | 2,640 | 3,240 | +23% |
+| batteries | GG8 | 1,800 | 1,060 | -41% |
+| batteries | GG10 | 1,782 | 1,490 | -16% |
+| batteries | RS8 | 1,782 | 1,870 | +5% |
+| solar | SLSP | 3,648 | 5,000 | +37% |
+| solar | SLSP AE | 3,648 | 2,120 | -42% |
+| solar | E SOLAR | 3,344 | 3,800 | +14% |
+| solar | E SOLAR MK 2 | 3,344 | 3,060 | -8% |
+| rcs | RCSYS-2 | 3,340 | 3,180 | -5% |
+| rcs | RCSYS-4 | 3,036 | 2,760 | -9% |
+| rcs | RCSYS-KS | 3,036 | 1,830 | -40% |
+| rcs | RCSYS-KSM | 2,505 | 4,450 | +78% |
+| rcs | RCSYS-GSS | 2,226 | 2,430 | +9% |
+| rcs | RCSYS-G9 | 2,024 | 1,720 | -15% |
+| rcs | RCSYS-G9S | 1,619 | 1,410 | -13% |
+| jumpdrive | DVJD-400 | 4,277 | 3,680 | -14% |
+| jumpdrive | DVJD-450 | 4,277 | 4,060 | -5% |
+| jumpdrive | DVJD-500 | 4,752 | 4,340 | -9% |
+| jumpdrive | DVJD-600 | 3,802 | 4,860 | +28% |
+| jumpdrive | KIJD-10 | 5,280 | 5,940 | +12% |
+| jumpdrive | KIJD-20 | 5,280 | 5,780 | +9% |
+| jumpdrive | KIJD-140 | 5,808 | 5,210 | -10% |
+| jumpdrive | KIJD-140R | 4,752 | 4,860 | +2% |
+| jumpdrive | KIJD-140S | 5,280 | 4,760 | -10% |
+| weapons | PL-900 | 2,871 | 2,300 | -20% |
+| weapons | PL-910 | 2,871 | 2,370 | -17% |
+| weapons | PL-920 | 2,871 | 2,300 | -20% |
+| weapons | PL-940 | 3,190 | 2,700 | -15% |
+| weapons | MPL-010 | 2,088 | 1,010 | -52% |
+| weapons | MPL-040 | 1,856 | 1,010 | -46% |
+| weapons | MPL-060 | 1,856 | 1,060 | -43% |
+| weapons | MPL-100 | 1,856 | 1,440 | -22% |
+| weapons | PSP-440 | 2,610 | 2,760 | +6% |
+| weapons | PSP-450 | 2,610 | 3,000 | +15% |
+| weapons | PSP-460 | 2,610 | 2,900 | +11% |
+| weapons | PSP-5X | 2,610 | 2,990 | +15% |
+| weapons | SPL-5S | 2,610 | 3,400 | +30% |
+| weapons | SPL-6S | 2,610 | 3,740 | +43% |
+| weapons | SPL-7 | 2,900 | 3,720 | +28% |
+| weapons | SPL-9S | 2,610 | 3,940 | +51% |
+| pds | PDL 101 | 4,235 | 2,240 | -47% |
+| pds | PDL 111 | 4,235 | 2,560 | -40% |
+| pds | PDL 400 | 4,235 | 2,700 | -36% |
+| pds | MPD 100 | 3,850 | 3,400 | -12% |
+| pds | MPD 200 | 3,465 | 3,280 | -5% |
+| pds | MPD 250 | 3,080 | 3,200 | +4% |
+| pds | PSL 900 | 3,850 | 4,440 | +15% |
+| pds | PSL 940 | 3,465 | 3,920 | +13% |
+| pds | PSL 10X | 3,150 | 3,960 | +26% |
+| pds | SDS 080 | 3,150 | 4,850 | +54% |
+| pds | SDS 090 | 3,150 | 4,340 | +38% |
+| pds | SDS 55L | 3,850 | 4,830 | +25% |
+| cms | CML/2 | 2,871 | 2,440 | -15% |
+| cms | CML/3 | 2,871 | 2,580 | -10% |
+| cms | CM/42 | 3,190 | 3,100 | -3% |
+| cms | PCM/9 | 3,190 | 1,540 | -52% |
+| cms | PCM/9S | 3,190 | 2,330 | -27% |
+| cms | PCM/9G | 3,190 | 2,860 | -10% |
+| cms | SCM/4 | 2,900 | 4,240 | +46% |
+| cms | SCM/2 | 2,900 | 3,550 | +22% |
+| cms | SC/90 | 2,900 | 4,560 | +57% |
+| comms | AE-35 | 1,685 | 1,900 | +13% |
+| comms | AE-38 | 1,685 | 2,240 | +33% |
+| comms | AR-20 | 1,685 | 1,700 | +1% |
+| comms | MK-11 | 2,574 | 2,610 | +1% |
+| comms | OL-08 | 2,574 | 2,150 | -16% |
+| comms | MK-22 | 2,574 | 2,090 | -19% |
+| comms | LP-02 | 2,600 | 2,700 | +4% |
+| comms | LP-04 | 2,600 | 2,720 | +5% |
+| comms | LP-S | 2,600 | 2,450 | -6% |
+| hackers | LP9-2 | 2,860 | 1,820 | -36% |
+| hackers | LP9-100 | 2,574 | 2,320 | -10% |
+| hackers | OTH-S | 2,317 | 2,100 | -9% |
+| hackers | OTH-3S | 2,059 | 2,040 | -1% |
+| hackers | DA-COMM | 1,685 | 2,600 | +54% |
+| hackers | DAT-COMM | 1,498 | 2,110 | +41% |
+| sensors | C1-SNS | 3,432 | 2,630 | -23% |
+| sensors | C5-SNS | 3,432 | 3,090 | -10% |
+| sensors | D2-SNS | 1,685 | 1,740 | +3% |
+| sensors | D4-SNS | 1,872 | 2,040 | +9% |
+| sensors | M1-SNS | 3,432 | 3,390 | -1% |
+| sensors | M2-SNS | 3,432 | 3,540 | +3% |
+| sensors | SL-SNS | 3,120 | 2,810 | -10% |
+| sensors | SM-SNS | 3,120 | 3,050 | -2% |
+| sensors | SQ-SNS | 3,120 | 3,370 | +8% |
+| sensors | T9-SNS | 2,860 | 3,200 | +12% |
+| sensors | T0-SNS | 2,860 | 3,490 | +22% |
+| arms | DRAK | 2,783 | 3,670 | +32% |
+| arms | DRAK 2 | 2,783 | 3,060 | +10% |
+| arms | GRA | 2,530 | 2,150 | -15% |
+| arms | GRA 5 | 2,760 | 1,970 | -29% |
+| navcom | CNM/1 | 3,480 | 3,470 | -0% |
+| navcom | CNM/2 | 3,480 | 2,620 | -25% |
+| navcom | CNM/R | 3,190 | 3,100 | -3% |
+| navcom | NM/60 | 2,088 | 2,310 | +11% |
+| navcom | NM/80 | 2,088 | 1,600 | -23% |
+| navcom | NM/99 | 2,610 | 2,070 | -21% |
+| navcom | SNM/40 | 2,784 | 2,270 | -18% |
+| navcom | SNM/50 | 3,480 | 2,830 | -19% |
+| navcom | SNM/66 | 3,480 | 3,580 | +3% |
+| navcom | NV/T1 | 3,190 | 3,470 | +9% |
+| navcom | NV/T2 | 3,190 | 4,010 | +26% |
+| navcom | NV/T4 | 3,190 | 4,910 | +54% |
+
+## Per-module table (before any rebalance)
 
 Price is base plus the cost of the `new` configuration's components. "Eff-adjusted stat" is the figure the "price per stat"
 column divides into (units differ by class, so compare only inside a class; lower price per stat is better value).

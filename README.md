@@ -203,6 +203,10 @@ changes or fixes the upstream maintainer has not accepted. The patcher is versio
   requirement are left alone. Originals are kept in `oisbugfix_original_assets/` and `--uninstall` puts them back.
   The paper-to-sector table is `LOCAL_NEWS_SECTORS` in `personal_variants.py`; edit it to taste.
 
+**Asked at run time:**
+
+- **Module price rebalance** (`rebalance.py`, analysis in [BALANCE.md](BALANCE.md)): prices follow what a module does instead of its series; same average price per class. Remembered between runs, undone by `--uninstall`.
+
 **Not carried over to this branch's plugin** (kept in git history and `tools/` for reference): the all-purpose point-defence
 variant (`tools/pds/`), civilians who give in (`tools/civ/`), the IFF debug log (`tools/iffdebug/`), the bounty save tool
 (`tools/save/add_bounties.py`). The weapon spin-up fix is no longer a variant: it is in `master` since 0.4.2.
