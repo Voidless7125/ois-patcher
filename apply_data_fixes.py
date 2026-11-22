@@ -464,6 +464,16 @@ FIXES = {
          "taketo=810\n"
          "end conversationelement\n"),
     ],
+
+    # The follow-up email repeats the "blue nebula" tip; same caveat as above, as one more bullet.
+    "owi_akihasagawaemail1.txt": [
+        (1,
+         "* Red and purple nebulae and asteroid belts are NOT your friends!^^",
+         "* Red and purple nebulae and asteroid belts are NOT your friends!^^"
+         "* Heads up: only a full colour nav computer (the CNM and NV/T ones) shows which nebulae are blue, purple or red. "
+         "The NM/60 on a stock Ceres and the SNM/50 draw every nebula the same blue, and the green screens (NM/80, NM/99, "
+         "SNM/40, SNM/66) draw them all green, so on those you can't tell a safe nebula from a deadly one.^^"),
+    ],
 }
 
 
