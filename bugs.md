@@ -99,6 +99,7 @@ confirmed them in a live game yet.
 
 | Bug | Cause | Fix | Since |
 | :--- | :--- | :--- | :--- |
+| Aki Hasagawa tells you to use "blue nebulae only", but the starting nav screens draw every nebula the same colour (all blue on the NM/60 and SNM/50, all green on the NM/80, NM/99, SNM/40 and SNM/66) | Only the CNM and NV/T nav computers show the kinds apart | Two lines added to his conversation saying which nav computer you need | 0.4.2 |
 | "unknown mesh" error for background NPCs with one beard style | A typo in one cosmetics field | Corrected | 0.2.0 |
 | "CLASH between additions" log spam on boot | Dead hairstyle tokens after headgear in 13 NPC files | Removed | 0.1.0 |
 | GRA 5 grappling arm missing 8 of 10 components in some conditions | Short `configuration=` arrays | Completed | 0.3.3 |
