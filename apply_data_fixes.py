@@ -435,6 +435,35 @@ FIXES = {
          "    hasmenu=true\n\tscreen=c_commstate",
          "\tscreen=c_commstate"),
     ],
+
+    # Aki Hasagawa's stealth tips (owi_akihasagawa3.txt) say to turn inside "blue nebulae only", but the nav screen
+    # you start with cannot tell nebulae apart: the nav computers come in three skins (uiprefix NavMap1/2/3 in
+    # modules_navcom.txt) and only NavMap3 draws the three nebula kinds in different colours.  NavMap2 (NM/60, the
+    # Ceres MkIII's stock one, and SNM/50) draws all of them in the same blue, NavMap1 (NM/80, NM/99, SNM/40, SNM/66)
+    # in the same green.  Two new elements (805, 806) in Aki's voice follow the "blue nebulae only" line.
+    "owi_akihasagawa3.txt": [
+        (1,
+         "Only use those if you absolutely HAVE to.\ntaketo=810\nend conversationelement\n",
+         "Only use those if you absolutely HAVE to.\ntaketo=805\nend conversationelement\n"
+         "\n"
+         "begin conversationelement\n"
+         "elementid=805\n"
+         "text=Oh #stand_chintouch wait, one catch with that, and it's a sneaky one. 'Blue nebulae' only helps if your nav screen "
+         "can actually tell nebulae apart. The nav computer on a stock Ceres, the NM/60 (and the SNM/50 too), paints EVERY "
+         "nebula the same blue, the nasty ones included. So a nebula that'll cook your systems looks exactly like a safe one. "
+         "Not ideal, haha.\n"
+         "taketo=806\n"
+         "end conversationelement\n"
+         "\n"
+         "begin conversationelement\n"
+         "elementid=806\n"
+         "text=What you want is a full colour nav computer, the CNM and NV/T ones. On those the safe nebulae are a pale blue, "
+         "the charged ones are purple, and the deadly ones are blotchy red and green. #stand_fingertip And if you went and bought "
+         "one of the green screens instead, the NM/80, NM/99 or the SNM/40 and 66, well, that was a bit of a silly buy, "
+         "because everything is green on those. Safe or deadly, doesn't matter!\n"
+         "taketo=810\n"
+         "end conversationelement\n"),
+    ],
 }
 
 
