@@ -2987,6 +2987,70 @@ def fix_sensor_ratings(data, pe, ptch_va, ptch_off, cave_cursor):
 
 
 # ============================================================
+# Fix 43: the mail terminal crashes when it is asked to open an email that does not exist.
+# ComputerSystem::selectedEmail(int) -- the handler behind selecting an email in the MAIL list -- reads
+# `emails[index]` straight from the vector at this+0xc with no bounds check (-1 means "back to the list" and is handled
+# above it).  An index past the end reads garbage and RenderEmail dereferences it.  Same remedy as the News list (fix_news_enter_without_selection):
+# the instruction pair that starts the indexed path (`mov [ecx],edx ; mov eax,[ecx+0xc]`) is replaced by a jump to a
+# cave that compares the index (unsigned, so any negative value other than -1 is out of range too) with the vector's
+# element count and, if it is out of range, returns without doing anything (`ret 4`, as the function itself does).
+# Client only (the server has no mail terminal).  tools/mail/test_mail_select.py runs the real function under emulation.
+# ============================================================
+
+def fix_mail_select_out_of_range(data, pe, ptch_va, ptch_off, cave_cursor):
+    label = "Mail terminal: opening an email that does not exist crashes"
+    SITE, BACK = 0x004B64C4, 0x004B64C9
+    if verify_site(data, pe, SITE, bytes.fromhex("8911" "8B410C" "FF3490"), label) is None:
+        FIXES_SKIPPED.append(label)
+        return cave_cursor
+    cave_va = ptch_va + cave_cursor
+    cave = bytearray(bytes.fromhex("8B4110" "2B410C" "C1F802" "3BD0"))      # EAX = element count ; CMP EDX,EAX
+    cave += b"\x73\x00"                                                   # JAE out_of_range (unsigned)
+    jae = len(cave) - 1
+    cave += bytes.fromhex("8911" "8B410C")                                  # the two instructions we displaced
+    cave += b"\xE9" + struct.pack("<i", BACK - (cave_va + len(cave) + 5))
+    cave[jae] = len(cave) - (jae + 1)
+    cave += bytes.fromhex("8BE5" "5D" "C20400")                             # MOV ESP,EBP / POP EBP / RET 4
+    neutralize_relocations(data, pe, SITE, 5, label)
+    data[ptch_off + cave_cursor: ptch_off + cave_cursor + len(cave)] = cave
+    off = va_to_offset(pe, SITE)
+    data[off:off + 5] = b"\xE9" + struct.pack("<i", cave_va - (SITE + 5))
+    print(f"  [OK] {label}")
+    FIXES_APPLIED.append(label)
+    return cave_cursor + len(cave)
+
+
+# ============================================================
+# Fix 44: every launch logs `Unable to parse line '' in config file`.
+# The config loader splits the file into lines and splits each line at '='; anything that does not give exactly two
+# parts is logged as unparseable.  The file ends with a newline, so the last "line" is empty and is reported every time.
+# Harmless but it reads like a fault.  The `else` branch (the line is not key=value) now first checks for an empty line
+# and, if so, skips straight to the loop's next iteration without logging.  A real malformed line is still reported.
+# (The game also rewrites its config after loading it, on every launch; that is stock behaviour and is left alone.)
+# Client only.  tools/config/test_config_blank_line.py runs the branch under emulation.
+# ============================================================
+
+def fix_config_blank_line_log(data, pe, ptch_va, ptch_off, cave_cursor):
+    label = "Config load: no more 'Unable to parse line \'\' in config file' for the trailing empty line"
+    SITE, SKIP_TO, MOVE_EDI, PUSH_EDI = 0x004B1849, 0x004B2907, 0x004B184F, 0x004B1851
+    if verify_site(data, pe, SITE, bytes.fromhex("837F1410" "7202" "8B3F" "57" "68480C6100"), label) is None:
+        FIXES_SKIPPED.append(label)
+        return cave_cursor
+    cave_va = ptch_va + cave_cursor
+    cave = bytearray(bytes.fromhex("837F1000"))                                   # CMP DWORD [EDI+0x10],0   (line is empty?)
+    cave += b"\x0F\x84" + struct.pack("<i", SKIP_TO - (cave_va + len(cave) + 6))    # JE  next line, nothing logged
+    cave += bytes.fromhex("837F1410")                                             # the displaced CMP [EDI+0x14],0x10
+    cave += b"\x0F\x82" + struct.pack("<i", PUSH_EDI - (cave_va + len(cave) + 6))   # JB  (was: JB +2)
+    cave += b"\xE9" + struct.pack("<i", MOVE_EDI - (cave_va + len(cave) + 5))        # fall through to MOV EDI,[EDI]
+    data[ptch_off + cave_cursor: ptch_off + cave_cursor + len(cave)] = cave
+    off = va_to_offset(pe, SITE)
+    data[off:off + 6] = b"\xE9" + struct.pack("<i", cave_va - (SITE + 5)) + b"\x90"
+    print(f"  [OK] {label}")
+    FIXES_APPLIED.append(label)
+    return cave_cursor + len(cave)
+
+
+# ============================================================
 # Fix 33: some NPC ships turn up with their IFF off ("Unknown" in red on the nav map) and
 # "Turning my reactors off" in the debug log, on some machines and not on others -- Leslie
 # Garbut's SS Jolly Rancher in the intro, for one.  ShipBehaviour (0x164 bytes, allocated
@@ -4728,6 +4792,8 @@ def main():
     cave_cursor = fix_nav_jump_range_efficiency(data, pe, ptch_va, ptch_off, cave_cursor)
     cave_cursor = fix_station_to_ship_crash(data, pe, ptch_va, ptch_off, cave_cursor)
     cave_cursor = fix_resolution_list_duplicates(data, pe, ptch_va, ptch_off, cave_cursor)
+    cave_cursor = fix_mail_select_out_of_range(data, pe, ptch_va, ptch_off, cave_cursor)
+    cave_cursor = fix_config_blank_line_log(data, pe, ptch_va, ptch_off, cave_cursor)
 
     # --- PLUGIN HOOK ---
     if gog:
