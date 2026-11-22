@@ -5,8 +5,8 @@
 
 Finds the cut-offs of the shop's "Detect Rng" (sensorquality) and "Sns. Ghsts" (ghosttimer) ratings by bisecting the
 exe's own compares, rates every sensor in modules_sensors.txt / modules_npc.txt with them, and checks that the sensor's
-"Range : 0Gm" line is now "Soft. Ver.: <softwareversion>" (the argument set-up is run up to the formatter call).  Patched: detection cut-offs 0.55 / 0.75 / 0.95 / 1.15, ghost
-cut-offs 180 / 220 / 250 / 300.  Stock: exits 1.
+"Range : 0Gm" line is now "Soft. Ver.: <softwareversion>" (the argument set-up is run up to the formatter call).  Patched: detection cut-offs 0.7 / 0.85 / 1.05 / 1.25, ghost
+cut-offs 215 / 245 / 310 / 375.  Stock: exits 1.
 """
 import os
 import struct
@@ -26,12 +26,12 @@ SENSORS = (("C1-SNS", 0.8, (12, 32, 43)), ("C5-SNS", 1.2, (12, 32, 43)), ("D2-SN
            ("Probe", 1.2, (8, 12, 24)))
 DET_BANDS = ("V. Bad", "Bad", "Medium", "Good", "V. Good")
 GHOST_BANDS = ("V. High", "High", "Moderate", "Low", "V. Low")      # more ghosts .. fewer ghosts
-WANT_DET = {"C1-SNS": "Medium", "C5-SNS": "V. Good", "D2-SNS": "V. Bad", "D4-SNS": "Bad", "M1-SNS": "Medium",
-            "M2-SNS": "Good", "SL-SNS": "Good", "SM-SNS": "Good", "SQ-SNS": "V. Good", "T9-SNS": "Bad",
-            "T0-SNS": "Medium", "RM-SNS": "V. Good", "Probe": "V. Good"}
-WANT_GHOST = {"C1-SNS": "Moderate", "C5-SNS": "Moderate", "D2-SNS": "High", "D4-SNS": "High", "M1-SNS": "V. Low",
-              "M2-SNS": "V. Low", "SL-SNS": "Low", "SM-SNS": "Low", "SQ-SNS": "Low", "T9-SNS": "V. Low",
-              "T0-SNS": "V. Low", "RM-SNS": "Low", "Probe": "V. High"}
+WANT_DET = {"C1-SNS": "Bad", "C5-SNS": "Good", "D2-SNS": "V. Bad", "D4-SNS": "V. Bad", "M1-SNS": "Medium",
+            "M2-SNS": "Medium", "SL-SNS": "Medium", "SM-SNS": "Good", "SQ-SNS": "V. Good", "T9-SNS": "V. Bad",
+            "T0-SNS": "Bad", "RM-SNS": "V. Good", "Probe": "Good"}
+WANT_GHOST = {"C1-SNS": "High", "C5-SNS": "High", "D2-SNS": "V. High", "D4-SNS": "V. High", "M1-SNS": "V. Low",
+              "M2-SNS": "V. Low", "SL-SNS": "Moderate", "SM-SNS": "Moderate", "SQ-SNS": "Moderate", "T9-SNS": "V. Low",
+              "T0-SNS": "Low", "RM-SNS": "Moderate", "Probe": "V. High"}
 
 
 def main():
@@ -66,8 +66,8 @@ def main():
     det, gh = cutoffs(DETECT, 20.0), cutoffs(GHOST, 2000.0)
     print("  detection cut-offs:", det, " ghost cut-offs:", gh)
     bad = 0
-    for name, ok in (("detection cut-offs 0.55 / 0.75 / 0.95 / 1.15", det == [0.55, 0.75, 0.95, 1.15]),
-                     ("ghost cut-offs 180 / 220 / 250 / 300", gh == [180, 220, 250, 300])):
+    for name, ok in (("detection cut-offs 0.7 / 0.85 / 1.05 / 1.25", det == [0.7, 0.85, 1.05, 1.25]),
+                     ("ghost cut-offs 215 / 245 / 310 / 375", gh == [215, 245, 310, 375])):
         bad += not ok
         print(("  PASS " if ok else "  FAIL ") + name)
     f32 = lambda v: struct.unpack("<f", struct.pack("<f", v))[0]

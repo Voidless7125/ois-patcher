@@ -107,16 +107,20 @@ confirmed them in a live game yet.
 
 ## Sensor rating cut-offs (a 0.4.2 change)
 
-These are the bands the shop and mechanic now use. Only the label changes, never the sensor.
+These are the bands the shop and mechanic now use. Only the label changes, never the sensor. They were picked so the eleven shop sensors
+spread across the five bands as evenly as their values allow: several sensors share exactly the same figure (for example D4 and T9, or
+C1 and T0), and tied sensors always land in the same band, so a perfect 2-2-2-2-2 is not possible.
 
 | Rating | V. Bad | Bad | Medium | Good | V. Good |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| **Detect Rng** (sensor quality) | below 0.55 | 0.55 to 0.75 | 0.75 to 0.95 | 0.95 to 1.15 | 1.15 and above |
+| **Detect Rng** (sensor quality) | below 0.7 | 0.7 to 0.85 | 0.85 to 1.05 | 1.05 to 1.25 | 1.25 and above |
+| sensors | D2, D4, T9 | C1, T0 | M1, M2, SL | SM, C5 | SQ (RM-SNS) |
 | was before 0.4.2 | below 0.8 | 0.8 to 1.0 | 1.0 to 1.2 | 1.2 to 1.4 | 1.4 and above |
 
 | Rating | V. High | High | Moderate | Low | V. Low |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| **Sns. Ghsts** (average ghosts) | below 180 | 180 to 220 | 220 to 250 | 250 to 300 | 300 and above |
+| **Sns. Ghsts** (average ghosts) | below 215 | 215 to 245 | 245 to 310 | 310 to 375 | 375 and above |
+| sensors | D2, D4 (Probe) | C1, C5 | SL, SM, SQ (RM-SNS) | T0 | M1, M2, T9 |
 
 ## Build support
 
