@@ -2918,19 +2918,21 @@ def fix_solar_range_rating(data, pe, ptch_va, ptch_off, cave_cursor):
 #    dropped for sensors by pointing its one `push` at an empty string (the same format string is still used, with real
 #    values, by the other module types that print a range).
 #  * "Detect Rng" (sensorquality, class+0xE4) was rated against 0.8 / 1.0 / 1.2 / 1.4, but the real sensors span 0.4 to
-#    1.3, so none ever reached "V. Good" (only the Remora's RM-SNS at 5 did).  Cut-offs are now 0.55 / 0.75 / 0.95 / 1.15,
-#    which spreads the eleven sensors 1 / 2 / 3 / 3 / 2 across V. Bad .. V. Good.
+#    1.3, so none ever reached "V. Good" (only the Remora's RM-SNS at 5 did).  Cut-offs are now 0.7 / 0.85 / 1.05 / 1.25,
+#    chosen so the eleven shop sensors spread as evenly as their tied values allow (3 / 2 / 3 / 2 / 1 across V. Bad .. V. Good;
+#    D2, D4 and T9 / C1 and T0 / M1, M2 and SL / SM and C5 / SQ), and the Remora's RM-SNS (5) is V. Good.
 #  * "Sns. Ghsts" is rated from the `ghosttimer` dice (NdM+K as count * ((sides+1)/2) + K; a longer timer means fewer
 #    ghosts, rated Low) against 90 / 115 / 135 / 170, but the real sensors work out to 190-385, so every one read "V. Low"
-#    while the Probe Sensor (about 72) read "V. High".  Cut-offs are now 180 / 220 / 250 / 300: Probe Sensor V. High, D2/D4
-#    High, C1/C5 Moderate, SL/SM/SQ/RM Low, T0/M1/M2/T9 V. Low.
+#    while the Probe Sensor (about 72) read "V. High".  Cut-offs are now 215 / 245 / 310 / 375, again the most even spread
+#    the tied values allow (2 / 2 / 3 / 1 / 3 over the shop sensors): D2/D4 V. High, C1/C5 High, SL/SM/SQ (and the RM-SNS)
+#    Moderate, T0 Low, M1/M2/T9 V. Low; the Probe Sensor (about 72) is V. High.
 # The compares are `comiss xmm0,[shared constant]`; as in Fix 40 each becomes a call to a cave stub with its own constant.
 # Client only.  tools/ui/test_sensor_ratings.py runs the compares under emulation.
 # ============================================================
 
-SENSOR_GHOST_SITES = ((0x00493D34, 170.0, 300.0), (0x00493D45, 135.0, 250.0), (0x00493D56, 115.0, 220.0),
-                      (0x00493D67, 90.0, 180.0))
-SENSOR_DETECT_SITES = ((0x00493FA2, 1.4, 1.15), (0x00493FB3, 1.2, 0.95), (0x00493FC4, 1.0, 0.75), (0x00493FD5, 0.8, 0.55))
+SENSOR_GHOST_SITES = ((0x00493D34, 170.0, 375.0), (0x00493D45, 135.0, 310.0), (0x00493D56, 115.0, 245.0),
+                      (0x00493D67, 90.0, 215.0))
+SENSOR_DETECT_SITES = ((0x00493FA2, 1.4, 1.25), (0x00493FB3, 1.2, 1.05), (0x00493FC4, 1.0, 0.85), (0x00493FD5, 0.8, 0.7))
 SENSOR_RANGE_PUSH, SENSOR_RANGE_STRING = 0x00493CBC, 0x0060E0F4
 # the Range line's argument set-up, replaced by "load softwareversion (class +0xB0) as the %d argument"
 SENSOR_RANGE_ARGS = 0x00493CA6
