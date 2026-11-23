@@ -17,6 +17,7 @@ confirmed them in a live game yet.
 | Crash when opening the PDA while a character portrait is being drawn | A null check was missing in the engine's batch renderer | Tab is ignored for that instant | 0.2.0 |
 | Crash returning from a station to your ship on longer-played saves | Station monitors were drawn after being freed (two ordering bugs) | The update and fade steps run in a safe order | 0.4.1 |
 | Crash when clicking or backing out of a monitor after the primary hull is destroyed | A null ship was used | Guarded | 0.3.8 |
+| Crash dropping a part onto an empty slot in the repair screen (for example right after unmounting parts) | The swap read the empty slot's null component | The drop is refused like any other invalid slot | 0.4.2 |
 | Crash dragging an installed addon to another slot on the repair screen | An out-of-range read | The move is refused cleanly | 0.3.6 |
 | Crash or hang loading a save that has a module the game no longer knows | A null module was used and the save stream got out of step | The slot loads empty | 0.3.5 |
 | Mail terminal crash with `DEL`, `DEL DIR`, `DEL VIEW` and other names with no extension | Missing extension handling | Guarded, and `.COM` files still cannot be deleted | 0.1.0 (refined 0.4.0) |

@@ -3051,6 +3051,42 @@ def fix_config_blank_line_log(data, pe, ptch_va, ptch_off, cave_cursor):
 
 
 # ============================================================
+# Fix 45: crash in the engineering repair screen when a component is dropped onto an EMPTY slot of the open module
+# (reported from a crash log: ShipInterface::doEngMoveComponent <- UI_ModuleRepair::dragOnto <- onMouseUp, touch screen,
+# right after unmounting parts and dragging again).  The move is a swap: it loads the component in the source slot and the
+# one in the destination slot, rejects a null source ("Invalid component to be dragged."), then compares the two
+# components' socket classes (`class[+0x80]`) -- reading `dest->class` with no null test.  A destination slot that has just
+# been emptied (an unmounted or removed part) holds a null pointer, so `mov ecx,[ebx+4]` faults.  There is no slot type to
+# compare against for an empty slot, so the move is refused through the function's own "Dragging component to an invalid
+# slot." exit (message and sound as for any other refused drop) instead of crashing.  The two instructions that read the
+# classes are replaced by a jump to a cave that tests the destination first.  Client only.
+# tools/repair/test_eng_move_empty.py runs it under emulation.
+# ============================================================
+
+def fix_eng_move_empty_slot(data, pe, ptch_va, ptch_off, cave_cursor):
+    label = "Crash dropping a component onto an empty slot in the repair screen"
+    SITE, BACK, REJECT = 0x004E105E, 0x004E1064, 0x004E1072
+    if verify_site(data, pe, SITE, bytes.fromhex("8B4004" "8B4B04"), label) is None:
+        FIXES_SKIPPED.append(label)
+        return cave_cursor
+    if verify_site(data, pe, REJECT, bytes.fromhex("6860676100" "E96DFFFFFF"), label + " (reject exit)") is None:
+        FIXES_SKIPPED.append(label)
+        return cave_cursor
+    cave_va = ptch_va + cave_cursor
+    cave = bytearray(bytes.fromhex("85DB"))                                          # TEST EBX,EBX   (destination component)
+    cave += b"\x0F\x84" + struct.pack("<i", REJECT - (cave_va + len(cave) + 6))       # JZ  "Dragging component to an invalid slot."
+    cave += bytes.fromhex("8B4004" "8B4B04")                                          # the two displaced loads
+    cave += b"\xE9" + struct.pack("<i", BACK - (cave_va + len(cave) + 5))             # JMP back
+    neutralize_relocations(data, pe, SITE, 6, label)
+    data[ptch_off + cave_cursor: ptch_off + cave_cursor + len(cave)] = cave
+    off = va_to_offset(pe, SITE)
+    data[off:off + 6] = b"\xE9" + struct.pack("<i", cave_va - (SITE + 5)) + b"\x90"
+    print(f"  [OK] {label}")
+    FIXES_APPLIED.append(label)
+    return cave_cursor + len(cave)
+
+
+# ============================================================
 # Fix 33: some NPC ships turn up with their IFF off ("Unknown" in red on the nav map) and
 # "Turning my reactors off" in the debug log, on some machines and not on others -- Leslie
 # Garbut's SS Jolly Rancher in the intro, for one.  ShipBehaviour (0x164 bytes, allocated
@@ -4787,6 +4823,7 @@ def main():
     cave_cursor = fix_resolution_list_duplicates(data, pe, ptch_va, ptch_off, cave_cursor)
     cave_cursor = fix_mail_select_out_of_range(data, pe, ptch_va, ptch_off, cave_cursor)
     cave_cursor = fix_config_blank_line_log(data, pe, ptch_va, ptch_off, cave_cursor)
+    cave_cursor = fix_eng_move_empty_slot(data, pe, ptch_va, ptch_off, cave_cursor)
 
     # --- PLUGIN HOOK ---
     if gog:
