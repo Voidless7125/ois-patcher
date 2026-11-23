@@ -39,3 +39,24 @@ returns a pointer to a struct whose first member is a string: still a deref.
 * Component slot arrays: loads from `module+0xc` `[4+slot*4]` / `[0x54+slot*4]` used without a test
   (36 sites; the ones in `NetworkServer` run on the server and would be remote-triggerable).
 * Unchecked `vector[index]` (the mail crash): `(end-begin)>>2` computed nearby but never compared.
+
+## Scan 2: component/addon slot loads (`scan_slots.py`)
+14 candidates, all in `NetworkData::send/unpackSetComponent/Addon` and
+`NetworkServer::startSyncingModuleState`. The ones read are false positives: the slot *is* tested
+(often as a memory compare before the load, or on a reloaded copy), which the scanner does not follow.
+Side finding (multiplayer only): `unpackSetComponent/Addon` use the module found by id and the slot
+index straight from the packet with no "module not found" or range check, so a malformed packet could
+crash or corrupt a peer. Not reachable from normal play; not patched.
+
+## Scan 3: unchecked array index from an argument (`scan_index.py`)
+22 candidates. Sanity check: it independently flags `ComputerSystem::selectedArticle`, which is
+the news crash already fixed (SITE 0x4B5877), so the method does find this class.
+The rest are indexes that come from UI button definitions or game state (`doCancelTrade` writes
+`trade[slot*0x44]`, `doJettisonCargo`, `doEngMountComponent`, `doPwrRaise/LowerPriority`,
+`Sector::getShip`, `Ship::executeCourse`, `TradeEngine::maxCanAffordForCurrentTrade`, ...). None has a
+known way to receive an out-of-range value in normal play, so none was patched.
+
+## Conclusion
+Three scans, no new patch-worthy crash. Remaining crashes are more likely to come from *state*
+(stale ids, emptied slots) than from missing checks on inputs, which is how Fix 45 was found: from a
+real crash log. Best next sources: real crash logs, and a data linter for broken references.

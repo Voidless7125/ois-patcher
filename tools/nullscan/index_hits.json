@@ -1,0 +1,156 @@
+[
+ {
+  "fn": "ComputerSystem::selectedArticle",
+  "va": 4937840,
+  "use": 4937852,
+  "arg": 8,
+  "text": "push dword ptr [eax + edx*4]"
+ },
+ {
+  "fn": "RoomObject::generateScreen",
+  "va": 5492112,
+  "use": 5492323,
+  "arg": 8,
+  "text": "mov dword ptr [edi + ecx*4 + 0x624], eax"
+ },
+ {
+  "fn": "ServerPresentationInterface::setScenario",
+  "va": 5463072,
+  "use": 5463097,
+  "arg": 8,
+  "text": "mov eax, dword ptr [edx + eax*4]"
+ },
+ {
+  "fn": "ShipInterface::doCancelTrade",
+  "va": 5121568,
+  "use": 5121662,
+  "arg": 12,
+  "text": "mov dword ptr [eax + edx*4 + 4], 0"
+ },
+ {
+  "fn": "ShipInterface::doEngMountComponent",
+  "va": 5117120,
+  "use": 5117177,
+  "arg": 16,
+  "text": "mov eax, dword ptr [ecx + eax*4]"
+ },
+ {
+  "fn": "ShipInterface::doJettisonCargo",
+  "va": 5137008,
+  "use": 5137216,
+  "arg": 8,
+  "text": "mov eax, dword ptr [ecx + edi*4]"
+ },
+ {
+  "fn": "ShipInterface::doMapClick",
+  "va": 5142576,
+  "use": 5142841,
+  "arg": 20,
+  "text": "divss xmm1, dword ptr [eax*4 + 0x5e2e1c]"
+ },
+ {
+  "fn": "ShipInterface::doPwrLowerPriority",
+  "va": 5115312,
+  "use": 5115440,
+  "arg": 8,
+  "text": "cmp dword ptr [eax + ebx*4], edi"
+ },
+ {
+  "fn": "ShipInterface::doPwrRaisePriority",
+  "va": 5114960,
+  "use": 5115088,
+  "arg": 8,
+  "text": "cmp dword ptr [eax + ebx*4], edi"
+ },
+ {
+  "fn": "?GetMyBoundAddress@RakPeer@RakNet@@UAE?AUSystemAddress@2@H@Z",
+  "va": 5910624,
+  "use": 5910739,
+  "arg": 12,
+  "text": "mov ecx, dword ptr [edx + eax*4]"
+ },
+ {
+  "fn": "?Reset@ReliabilityLayer@RakNet@@QAEX_NH0@Z",
+  "va": 5866640,
+  "use": 5866742,
+  "arg": 12,
+  "text": "addsd xmm0, qword ptr [esi*8 + 0x631890]"
+ },
+ {
+  "fn": "FogInstance::removeFogInRadius",
+  "va": 5375728,
+  "use": 5375821,
+  "arg": 12,
+  "text": "mov eax, dword ptr [edi + ecx*4 + 4]"
+ },
+ {
+  "fn": "FogInstance::removeFogInRadius",
+  "va": 5375728,
+  "use": 5375949,
+  "arg": 12,
+  "text": "mov eax, dword ptr [edi + ecx*4]"
+ },
+ {
+  "fn": "GameLogic::reportPirate",
+  "va": 4267200,
+  "use": 4267211,
+  "arg": 8,
+  "text": "mov edx, dword ptr [esi*4 + 0x5d0180]"
+ },
+ {
+  "fn": "GameLogic::setStartLocation",
+  "va": 4265440,
+  "use": 4265456,
+  "arg": 8,
+  "text": "cmp dword ptr [edi*4 + 0x657020], -1"
+ },
+ {
+  "fn": "RoomCharacter::renderOverlay",
+  "va": 5473920,
+  "use": 5474085,
+  "arg": 12,
+  "text": "push dword ptr [ebx*4 + 0x5e1e1c]"
+ },
+ {
+  "fn": "Sector::getShip",
+  "va": 5379536,
+  "use": 5379548,
+  "arg": 8,
+  "text": "mov eax, dword ptr [ecx + eax*4]"
+ },
+ {
+  "fn": "Ship::executeCourse",
+  "va": 5343712,
+  "use": 5343769,
+  "arg": 12,
+  "text": "mov eax, dword ptr [ecx + edx*4]"
+ },
+ {
+  "fn": "Ship::executeCourse",
+  "va": 5343712,
+  "use": 5343779,
+  "arg": 8,
+  "text": "mov ecx, dword ptr [ecx + edx*4]"
+ },
+ {
+  "fn": "SoundEngine::addSound",
+  "va": 5609440,
+  "use": 5609554,
+  "arg": 12,
+  "text": "mov edi, dword ptr [edi*4 + 0x5e2230]"
+ },
+ {
+  "fn": "TradeEngine::maxCanAffordForCurrentTrade",
+  "va": 4766240,
+  "use": 4766295,
+  "arg": 8,
+  "text": "mov ecx, dword ptr [eax + edx*4 + 4]"
+ },
+ {
+  "fn": "TradeEngine::mechanicCanUpgradePod",
+  "va": 4794224,
+  "use": 4794305,
+  "arg": 8,
+  "text": "cmp eax, dword ptr [esi*4 + 0x5e16dc]"
+ }
+]
