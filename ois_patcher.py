@@ -3269,6 +3269,51 @@ def fix_station_to_ship_crash(data, pe, ptch_va, ptch_off, cave_cursor):
 # config files keep working.  Client only (the server has no display list).
 # ============================================================
 
+# ============================================================
+# Free starbases ask for undocking permission like every other starbase.
+#
+# A starbase whose sector entry has dockcost=0 (or none) was treated as having no permission system at all: every
+# check below returned "yes, you may leave" without looking for a request, so its docking-computer screen showed an
+# empty page with both buttons greyed out, unlike every other station.  The checks are the five places that say
+# "dockcost == 0 -> skip the permission records":
+#   SpaceStation::requestUndockingClearance   (two checks: return true at once / do not look for an existing request)
+#   SpaceStation::shipHasUndockingClearance   (return true at once)
+#   SpaceStation::getDockingRequest           (return no request at once)
+#   Ship::undock                              (do not remove the request when leaving)
+# plus the save-game writer (V12), which stored "has permission" as 1 for such a station.
+# Each is a conditional jump that is turned into "never taken" (or, for the save, "always taken"), so a free station
+# now goes down the same path as one that charges a fee, with the fee being 0.  Jumpgates and depots keep the stock
+# fee of 10 from the SpaceStation constructor and are not affected; the type-3 test in shipHasUndockingClearance is
+# untouched.  tools/dock/test_free_permission.py runs the two clearance functions under emulation.
+# ============================================================
+
+FREE_PERMISSION_SITES = {
+    # label: (client VA, server VA, expected bytes, replacement)
+    "requestUndockingClearance, return true": (0x0051B9E3, 0x0051AEF3, "0F84BB000000", "909090909090"),
+    "requestUndockingClearance, find request": (0x0051BA12, 0x0051AF22, "742A", "9090"),
+    "shipHasUndockingClearance": (0x0051C35A, 0x0051B86A, "7427", "9090"),
+    "getDockingRequest": (0x0051C39C, 0x0051B8AC, "7426", "9090"),
+    "Ship::undock, remove request": (0x00512A80, 0x00512120, "0F8494000000", "909090909090"),
+    "save-game permission flag": (0x004BD694, 0x004BD474, "7504", "EB04"),
+}
+
+
+def fix_free_station_undock_permission(data, pe, ptch_va, ptch_off, cave_cursor, server=False):
+    label = "Free starbases ask for (free) undocking permission like the others" + (" (server)" if server else "")
+    applied, skipped = _fix_lists(server)
+    for name, (client_va, server_va, expected, _new) in FREE_PERMISSION_SITES.items():
+        va = server_va if server else client_va
+        if verify_site(data, pe, va, bytes.fromhex(expected), f"{label} ({name})") is None:
+            skipped.append(label)
+            return cave_cursor
+    for name, (client_va, server_va, expected, new) in FREE_PERMISSION_SITES.items():
+        off = va_to_offset(pe, server_va if server else client_va)
+        data[off:off + len(expected) // 2] = bytes.fromhex(new)
+    print(f"  [OK] {label}")
+    applied.append(label)
+    return cave_cursor
+
+
 def fix_resolution_list_duplicates(data, pe, ptch_va, ptch_off, cave_cursor):
     label = "Resolution setting: one click per distinct resolution (duplicate refresh-rate modes removed)"
     SITE, SKIP_APPEND, GO_APPEND = 0x004B0B47, 0x004B0B6A, 0x004B0B4D
@@ -3449,6 +3494,7 @@ def patch_server_exe(exe_path):
     cave_cursor = fix_module_id_alias(data, pe, ptch_va, ptch_off, cave_cursor, server=True)
     cave_cursor = fix_weapon_spinup(data, pe, ptch_va, ptch_off, cave_cursor, server=True)
     cave_cursor = fix_behaviour_uninitialised_stealth(data, pe, ptch_va, ptch_off, cave_cursor, server=True)
+    cave_cursor = fix_free_station_undock_permission(data, pe, ptch_va, ptch_off, cave_cursor, server=True)
 
     # --- PLUGIN HOOK (the user already chose variants in begin_run) ---
     cave_cursor = _plugin_call("apply_exe_fixes", data, pe, ptch_va, ptch_off, cave_cursor,
@@ -4831,6 +4877,7 @@ def main():
     cave_cursor = fix_mail_select_out_of_range(data, pe, ptch_va, ptch_off, cave_cursor)
     cave_cursor = fix_config_blank_line_log(data, pe, ptch_va, ptch_off, cave_cursor)
     cave_cursor = fix_eng_move_empty_slot(data, pe, ptch_va, ptch_off, cave_cursor)
+    cave_cursor = fix_free_station_undock_permission(data, pe, ptch_va, ptch_off, cave_cursor)
 
     # --- PLUGIN HOOK ---
     if gog:

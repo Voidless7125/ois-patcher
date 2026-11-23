@@ -1,0 +1,100 @@
+[
+ {
+  "fn": "NetworkData::sendSetComponent",
+  "va": 4312992,
+  "load": 4313061,
+  "use": 4313065,
+  "text": "cvttss2si eax, dword ptr [eax]"
+ },
+ {
+  "fn": "NetworkData::sendSetAddon",
+  "va": 4314480,
+  "load": 4314544,
+  "use": 4314548,
+  "text": "cvttss2si eax, dword ptr [eax]"
+ },
+ {
+  "fn": "NetworkData::unpackSetComponent",
+  "va": 4318832,
+  "load": 4319140,
+  "use": 4319144,
+  "text": "mov eax, dword ptr [edx + 4]"
+ },
+ {
+  "fn": "NetworkData::unpackSetComponent",
+  "va": 4318832,
+  "load": 4319309,
+  "use": 4319313,
+  "text": "movss dword ptr [eax], xmm0"
+ },
+ {
+  "fn": "NetworkData::unpackSetComponent",
+  "va": 4318832,
+  "load": 4319325,
+  "use": 4319329,
+  "text": "mov eax, dword ptr [edx + 4]"
+ },
+ {
+  "fn": "NetworkData::unpackSetAddon",
+  "va": 4319408,
+  "load": 4319716,
+  "use": 4319720,
+  "text": "mov eax, dword ptr [edx + 4]"
+ },
+ {
+  "fn": "NetworkData::unpackSetAddon",
+  "va": 4319408,
+  "load": 4319885,
+  "use": 4319889,
+  "text": "movss dword ptr [eax], xmm0"
+ },
+ {
+  "fn": "NetworkData::unpackSetAddon",
+  "va": 4319408,
+  "load": 4319901,
+  "use": 4319905,
+  "text": "mov eax, dword ptr [edx + 4]"
+ },
+ {
+  "fn": "NetworkServer::startSyncingModuleState",
+  "va": 4349392,
+  "load": 4349817,
+  "use": 4349821,
+  "text": "mov eax, dword ptr [eax + 4]"
+ },
+ {
+  "fn": "NetworkServer::startSyncingModuleState",
+  "va": 4349392,
+  "load": 4349832,
+  "use": 4349836,
+  "text": "cvttss2si eax, dword ptr [eax]"
+ },
+ {
+  "fn": "NetworkServer::startSyncingModuleState",
+  "va": 4349392,
+  "load": 4349891,
+  "use": 4349895,
+  "text": "mov eax, dword ptr [eax + 4]"
+ },
+ {
+  "fn": "NetworkServer::startSyncingModuleState",
+  "va": 4349392,
+  "load": 4349986,
+  "use": 4349990,
+  "text": "mov eax, dword ptr [eax + 4]"
+ },
+ {
+  "fn": "NetworkServer::startSyncingModuleState",
+  "va": 4349392,
+  "load": 4350001,
+  "use": 4350005,
+  "text": "cvttss2si eax, dword ptr [eax]"
+ },
+ {
+  "fn": "NetworkServer::startSyncingModuleState",
+  "va": 4349392,
+  "load": 4350060,
+  "use": 4350064,
+  "text": "mov eax, dword ptr [eax + 4]"
+ }
+]

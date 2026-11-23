@@ -35,7 +35,7 @@ confirmed them in a live game yet.
 | Steering and burn vector recomputed about 125 times a second (log spam, wasted time) | Three separate causes | All three fixed | 0.1.0 |
 | Autopilot burned away from its destination after overshooting with a fast engine | The retro burn ignored the direction of travel | Uses the velocity and waypoint direction | 0.4.0 |
 | Autopilot kept the drive burning at top speed and drained the batteries | A float comparison too strict to ever be true | Tolerance added | 0.4.0 |
-| Autopilot kept burning forever at the last second of an approach and never docked (for example GX Delta at 100%) *(code only)* | The "overshot" branch ended the autopilot without switching the drive off | It now hands over to All Stop; "stopped" now means 0.3 Gm/s or less | 0.4.2 |
+| Autopilot kept burning forever at the last second of an approach and never docked (for example GX Delta at 100%) | The "overshot" branch ended the autopilot without switching the drive off | It now hands over to All Stop; "stopped" now means 0.3 Gm/s or less | 0.4.2 |
 | Full Stop while docked let you fly away without paying fees or closing the airlock | It cleared the docking state | The docking state is left alone | 0.3.5 |
 | Some NPC ships turned up with IFF off and reactors off ("Unknown" in red), such as the SS Jolly Rancher | A flag was never cleared and held leftover memory | Cleared in the constructor | 0.4.1 |
 
@@ -69,6 +69,8 @@ confirmed them in a live game yet.
 
 | Bug | Cause | Fix | Since |
 | :--- | :--- | :--- | :--- |
+| Free starbases (dockcost 0) show an empty docking screen and cannot be asked for permission | A zero fee was treated as "no permission system" in six places | They ask for permission like other starbases, at no charge | 0.4.2 |
+| Repair, rearm and countermeasure depots exist in the game but are never placed | No sector file used the depot class | One depot added to each of eleven systems; Enceladus gets the depot buttons | 0.4.2 |
 | Remora RCS and sensor could be bought in shops | They had a shop price | `basevalue=0` (the RM-SNS), restored for the RCS after a later clean-up dropped it | 0.4.0, restored 0.4.2 |
 | Garbled error buying radiation-shielded or temperature-controlled goods without pod space | Wrong arguments to the message | Fixed | 0.3.6 |
 | Nav map distance showed reachable sectors red for jump drives above 100% efficiency | It compared the base range, not base times efficiency | Uses the current range | 0.4.0 |
@@ -86,6 +88,8 @@ confirmed them in a live game yet.
 
 | Bug | Cause | Fix | Since |
 | :--- | :--- | :--- | :--- |
+| Station weapons terminal: bottom status bar cut in half | The text grid sits 6 units low on a 192-unit screen (needs 204) | Screen is now 272x204 | 0.4.2 |
+| Starbase trading room: Commerce Link monitor half out of frame | Room camera too far right | Camera moved left (x 647 to 585) | 0.4.2 |
 | The last key binding, "Decrease Main Drive Power", could not be scrolled to and had a stray space | Row count one short | Fixed in the PDA and main menu | 0.3.7 |
 | Mouse wheel could not zoom back out of cabin close-ups (posters, desk PC) | Only screens handled it | Handled | 0.3.7 |
 | Station terminal typing clicks and beeps swapped depending on where you loaded | Sounds were attached to the wrong object | Fixed, then refined for button beeps | 0.3.8, 0.3.9 |
