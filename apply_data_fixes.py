@@ -42,6 +42,23 @@ FIXES = {
          "req=!lfw_lesterfwardconv3done"),
     ],
 
+    # BUG-0xx: the station weapons terminal ("Welcome to <station> Weapons
+    # Terminal") draws its 42x24 text grid 6 units below the middle of the
+    # screen, which assumes a screen at least 204 units tall.  It was given
+    # 256x192, so the bottom row (the blue status bar with your balance) was
+    # cut in half.  272x204 keeps the 4:3 shape of the monitor.
+    "x8_corridor.txt": [
+        (1, "screenwidth=256", "screenwidth=272"),
+        (1, "screenheight=192", "screenheight=204"),
+    ],
+
+    # The first view of the starbase trading room starts so far to the right
+    # that the Commerce Link (contracts) monitor on the left wall is half out
+    # of frame, though it can still be clicked.  Move the room camera left.
+    "x8_bazaar.txt": [
+        (1, "\tcameraposx=647", "\tcameraposx=585"),
+    ],
+
     "scenarios.txt": [
         (1,
          "include coop_escort_3.txtX",
