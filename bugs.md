@@ -35,7 +35,7 @@ confirmed them in a live game yet.
 | Steering and burn vector recomputed about 125 times a second (log spam, wasted time) | Three separate causes | All three fixed | 0.1.0 |
 | Autopilot burned away from its destination after overshooting with a fast engine | The retro burn ignored the direction of travel | Uses the velocity and waypoint direction | 0.4.0 |
 | Autopilot kept the drive burning at top speed and drained the batteries | A float comparison too strict to ever be true | Tolerance added | 0.4.0 |
-| Autopilot kept burning forever at the last second of an approach and never docked (for example GX Delta at 100%) *(code only)* | The "overshot" branch ended the autopilot without switching the drive off | It now hands over to All Stop; "stopped" now means 0.3 Gm/s or less | 0.4.2 |
+| Autopilot kept burning forever at the last second of an approach and never docked (for example GX Delta at 100%) | The "overshot" branch ended the autopilot without switching the drive off | It now hands over to All Stop; "stopped" now means 0.3 Gm/s or less | 0.4.2 |
 | Full Stop while docked let you fly away without paying fees or closing the airlock | It cleared the docking state | The docking state is left alone | 0.3.5 |
 | Some NPC ships turned up with IFF off and reactors off ("Unknown" in red), such as the SS Jolly Rancher | A flag was never cleared and held leftover memory | Cleared in the constructor | 0.4.1 |
 

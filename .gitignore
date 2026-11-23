@@ -9,3 +9,6 @@ Thumbs.db
 # Editors
 .vscode/
 .idea/
+
+# OIS DLL's
+OIS-Update/*
