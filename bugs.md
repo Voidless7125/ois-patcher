@@ -88,6 +88,8 @@ confirmed them in a live game yet.
 
 | Bug | Cause | Fix | Since |
 | :--- | :--- | :--- | :--- |
+| M2-SNS repair schematic has a line hanging in mid-air | One line started at (200,130) instead of (200,70) | Corrected to match the M1-SNS | 0.4.2 |
+| Sensors AUTO toggle never reachable (commands present, buttons commented out) | The button lines were disabled in the data | Button enabled next to LADAR on all four ships | 0.4.2 |
 | Station weapons terminal: bottom status bar cut in half | The text grid sits 6 units low on a 192-unit screen (needs 204) | Screen is now 272x204 | 0.4.2 |
 | Starbase trading room: Commerce Link monitor half out of frame | Room camera too far right | Camera moved left (x 647 to 585) | 0.4.2 |
 | The last key binding, "Decrease Main Drive Power", could not be scrolled to and had a stray space | Row count one short | Fixed in the PDA and main menu | 0.3.7 |

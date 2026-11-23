@@ -328,6 +328,10 @@ FIXES = {
     "compinterfaces.txt": [
         (1, "\tid=mkxladara2", "\tid=mkxladr2"),
         (1, "\tid=mkxladarat", "\tid=mkxladrt"),
+        # The M2-SNS repair schematic: the line to the upper right shield chip started at (200,130), empty
+        # space under the relay, instead of at the cluster at (200,70), so it hung in mid-air.  The M1-SNS, which
+        # this layout was copied from, has (200,70).
+        (1, "line=200,130,240,90,2", "line=200,70,240,90,2"),
     ],
 
     # Issue #50: the Remora-only modules (remorareact, remorasensor) live in modules_npc.txt.  The shop stock
@@ -380,6 +384,12 @@ FIXES = {
     # with the button above it. Width and colour code are the Enceladus's own
     # and stay unchanged.
     "ui_enceladus.txt": [
+        # Sensors AUTO button.  The commands SENSOR_SET_AUTO / SENSOR_UNSET_AUTO and the state SENSORS_AUTO are in the
+        # exe (while on, the sensor screen keeps the most dangerous contact selected), but the UI lines were commented
+        # out (and sat on top of the LADAR button).  Now live, right of LADAR at x=101.
+        (1,
+         "#button=65,143,30,`$AUTO,SENSOR_UNSET_AUTO,SENSORS_AUTO\n#button=65,143,30,`8AUTO,SENSOR_SET_AUTO,!SENSORS_AUTO\n",
+         "    button=101,143,30,`$AUTO,SENSOR_UNSET_AUTO,SENSORS_AUTO,tooltip=Keep the most dangerous contact selected\n    button=101,143,30,`8AUTO,SENSOR_SET_AUTO,!SENSORS_AUTO,tooltip=Keep the most dangerous contact selected\n"),
         (1,
          "    button=128,170,80,`!Undock,UNDOCK,CAN_UNDOCK\n",
          "    button=158,170,80,`!Undock,UNDOCK,CAN_UNDOCK\n"),
@@ -433,6 +443,12 @@ FIXES = {
     # Same for Ceres (also used by the Proxima's console) and Remora: their Weapons / Cargo tabs show the
     # damage static of the helm like the other tabs of the console.
     "ui_ceres.txt": [
+        # Sensors AUTO button.  The commands SENSOR_SET_AUTO / SENSOR_UNSET_AUTO and the state SENSORS_AUTO are in the
+        # exe (while on, the sensor screen keeps the most dangerous contact selected), but the UI lines were commented
+        # out (and sat inside the waveform display).  Now live, right of LADAR at x=101.
+        (1,
+         "#button=65,96,30,`$AUTO,SENSOR_UNSET_AUTO,SENSORS_AUTO\n#button=65,96,30,`8AUTO,SENSOR_SET_AUTO,!SENSORS_AUTO\n",
+         "    button=101,143,30,`$AUTO,SENSOR_UNSET_AUTO,SENSORS_AUTO,tooltip=Keep the most dangerous contact selected\n    button=101,143,30,`8AUTO,SENSOR_SET_AUTO,!SENSORS_AUTO,tooltip=Keep the most dangerous contact selected\n"),
         (1,
          "    tabname=Cargo\n    width=256\n    height=192\n",
          "    tabname=Cargo\n    width=256\n    height=192\n    linkto=helm\n"),
@@ -444,6 +460,12 @@ FIXES = {
          "    shortname=c_weapons2\n    tabname=Weapons\n    width=256\n    height=192\n#linkto=weapon\n    linkto=helm\n"),
     ],
     "ui_remora.txt": [
+        # Sensors AUTO button.  The commands SENSOR_SET_AUTO / SENSOR_UNSET_AUTO and the state SENSORS_AUTO are in the
+        # exe (while on, the sensor screen keeps the most dangerous contact selected), but the UI lines were commented
+        # out.  Now live, right of LADAR at x=101.
+        (1,
+         "#button=65,96,30,`$AUTO,SENSOR_UNSET_AUTO,SENSORS_AUTO\n#button=65,96,30,`8AUTO,SENSOR_SET_AUTO,!SENSORS_AUTO\n",
+         "    button=101,96,30,`$AUTO,SENSOR_UNSET_AUTO,SENSORS_AUTO,tooltip=Keep the most dangerous contact selected\n    button=101,96,30,`8AUTO,SENSOR_SET_AUTO,!SENSORS_AUTO,tooltip=Keep the most dangerous contact selected\n"),
         (1,
          "    tabname=Cargo\n    width=256\n    height=192\n",
          "    tabname=Cargo\n    width=256\n    height=192\n    linkto=helm\n"),
