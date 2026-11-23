@@ -383,6 +383,21 @@ FIXES = {
         (1,
          "    button=128,170,80,`!Undock,UNDOCK,CAN_UNDOCK\n",
          "    button=158,170,80,`!Undock,UNDOCK,CAN_UNDOCK\n"),
+        # Depot buttons (Repair Systems / Repair Hull / Buy CM / Buy Torpedo).  The Ceres and Proxima docking
+        # screen already has them; the Enceladus never got them, so docked at a depot it could do nothing.
+        # Same place as on the Ceres, 80 wide so they clear the JUMP and Undock buttons below.
+        (1,
+         "    data=3,60,250,48,JUMPGATE_STATE,IS_DOCKED_WITH_JUMPGATE\n",
+         "    data=3,60,250,48,JUMPGATE_STATE,IS_DOCKED_WITH_JUMPGATE\n"
+         "\n    data=3,60,250,48,DEPOT_STATE,IS_DOCKED_WITH_DEPOT\n"
+         "\n    button=158,110,80,`$REPAIR SYSTEMS,REPAIR_MODULES_AT_DEPOT,CAN_REPAIR_MODULES_AT_DEPOT"
+         "\n    greyedbutton=158,110,80,REPAIR SYSTEMS,NONE,CANNOT_REPAIR_MODULES_AT_DEPOT"
+         "\n    button=158,122,80,`$REPAIR HULL,REPAIR_HULL_AT_DEPOT,CAN_REPAIR_HULL_AT_DEPOT"
+         "\n    greyedbutton=158,122,80,REPAIR HULL,NONE,CANNOT_REPAIR_HULL_AT_DEPOT"
+         "\n    button=158,134,80,`$BUY CM,BUY_CM_AT_DEPOT,CAN_BUY_CM_AT_DEPOT"
+         "\n    greyedbutton=158,134,80,BUY CM,NONE,CANNOT_BUY_CM_AT_DEPOT"
+         "\n    button=158,146,80,`$BUY TORPEDO,REARM_AT_DEPOT,CAN_REARM_AT_DEPOT"
+         "\n    greyedbutton=158,146,80,BUY TORPEDO,NONE,CANNOT_REARM_AT_DEPOT\n"),
         # The Helm Control and Orbital tabs of this console carry `linkto=helm`, which is what shows the
         # damage static / offline state of the module; the Weapons and Cargo tabs of the same console had
         # no link (the Weapons one is a commented-out `#linkto=weapon`), so they never showed any damage.
@@ -530,6 +545,61 @@ _GENERIC_EMAIL_OPENING = re.compile(
     r"^(Thank you for purchasing|Congratulations on purchasing) this ([^!.^]+?)([!.])")
 
 
+# Depots.  The game has a complete "DP-9 Depot" station class (spacestationclasses.txt, type=depot) with
+# hull repair (5 credits per repair point), module repair, countermeasure refill and a torpedo rearm, plus the
+# docking-screen buttons for them -- but no sector file ever places one, so none can be found.  This adds one
+# `begin depot` block to each of the main systems, 25 Gm from that system's first listed station (the other
+# side if that would leave the map).  File -> name shown on the nav screen.
+DEPOT_SECTORS = (
+    ("sector_cansa.txt", "Cansa"), ("sector_carruthers.txt", "Carruthers"), ("sector_diwali.txt", "Diwali"),
+    ("sector_galileo.txt", "Galileo"), ("sector_leo.txt", "Leo"), ("sector_magella.txt", "Magella"),
+    ("sector_maru.txt", "Maru"), ("sector_parssus.txt", "Parssus"), ("sector_sagan.txt", "Sagan"),
+    ("sector_tega.txt", "Tega"), ("sector_twosisters.txt", "Two Sisters"),
+)
+DEPOT_OFFSET = 25
+DEPOT_MAP_LIMIT = 330
+
+
+def depot_block(index, name, x, y):
+    return ("\nbegin depot\n\tname=%s Depot\n\trego=OP-DEPOT%02d\n\tclass=dp9\n\tlocationx=%d\n\tlocationy=%d\n"
+            "end depot\n" % (name, index, x, y))
+
+
+def add_depot(text, index, name):
+    """Returns `text` with a depot after the first station block, or None if it has no usable station."""
+    import re
+    m = re.search(r"begin station\r?\n(.*?)end station\r?\n", text, re.S)
+    if not m or "begin depot" in text:
+        return None
+    lx = re.search(r"^\s*locationx=(-?\d+)", m.group(1), re.M)
+    ly = re.search(r"^\s*locationy=(-?\d+)", m.group(1), re.M)
+    if not (lx and ly):
+        return None
+    x, y = int(lx.group(1)), int(ly.group(1))
+    x += DEPOT_OFFSET if abs(x + DEPOT_OFFSET) <= DEPOT_MAP_LIMIT else -DEPOT_OFFSET
+    return text[:m.end()] + depot_block(index, name, x, y) + text[m.end():]
+
+
+def apply_depots(assets_dir, mod_dst_dir):
+    """Writes the depot-carrying sector files into the mod folder.  Returns how many were written."""
+    assets_dir, mod_dst_dir = Path(assets_dir), Path(mod_dst_dir)
+    done = 0
+    for index, (filename, name) in enumerate(DEPOT_SECTORS):
+        src = mod_dst_dir / filename
+        if not src.is_file():
+            src = assets_dir / filename
+        if not src.is_file():
+            print(f"  [SKIP] {filename}: not found in {assets_dir}")
+            continue
+        out = add_depot(src.read_text(encoding="utf-8"), index, name)
+        if out is None:
+            print(f"  [SKIP] {filename}: no station block to place a depot next to, or already has a depot")
+            continue
+        (mod_dst_dir / filename).write_text(out, encoding="utf-8")
+        done += 1
+    return done
+
+
 def personalise_module_emails(assets_dir, mod_dst_dir):
     """Returns the number of module emails rewritten."""
     assets_dir, mod_dst_dir = Path(assets_dir), Path(mod_dst_dir)
@@ -660,6 +730,10 @@ def apply_all(assets_dir, mod_dst_dir):
         (mod_dst_dir / filename).write_text(content, encoding="utf-8")
         applied += 1
         print(f"  [OK] {filename}")
+
+    depots = apply_depots(assets_dir, mod_dst_dir)
+    if depots:
+        print(f"  [OK] {depots} depots added (repair, rearm and countermeasure refill)")
 
     emails = personalise_module_emails(assets_dir, mod_dst_dir)
     if emails:

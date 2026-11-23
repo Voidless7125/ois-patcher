@@ -69,6 +69,8 @@ confirmed them in a live game yet.
 
 | Bug | Cause | Fix | Since |
 | :--- | :--- | :--- | :--- |
+| Free starbases (dockcost 0) show an empty docking screen and cannot be asked for permission | A zero fee was treated as "no permission system" in six places | They ask for permission like other starbases, at no charge | 0.4.2 |
+| Repair, rearm and countermeasure depots exist in the game but are never placed | No sector file used the depot class | One depot added to each of eleven systems; Enceladus gets the depot buttons | 0.4.2 |
 | Remora RCS and sensor could be bought in shops | They had a shop price | `basevalue=0` (the RM-SNS), restored for the RCS after a later clean-up dropped it | 0.4.0, restored 0.4.2 |
 | Garbled error buying radiation-shielded or temperature-controlled goods without pod space | Wrong arguments to the message | Fixed | 0.3.6 |
 | Nav map distance showed reachable sectors red for jump drives above 100% efficiency | It compared the base range, not base times efficiency | Uses the current range | 0.4.0 |

@@ -147,6 +147,7 @@ UNPORTED = {
     "fix_mail_select_out_of_range": "Mail terminal: opening a missing email no longer crashes",
     "fix_config_blank_line_log": "Config load: no log line for the trailing empty line",
     "fix_eng_move_empty_slot": "Repair screen: no crash dropping a component on an empty slot",
+    "fix_free_station_undock_permission": "Free starbases ask for (free) undocking permission",
 }
 
 LO, HI = 0x401000, 0x700000
