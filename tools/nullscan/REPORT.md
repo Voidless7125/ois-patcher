@@ -22,9 +22,9 @@ not a failed lookup), so slot arrays need their own scan (below).
 ### Real but low-probability (unguarded, no known trigger)
 | Where | Lookup | Note |
 |---|---|---|
-| `ScreenInterface::updateMousePosition` 0x556d5d | `Room::getObject(room+0x38)` | the sibling branch 0x556d2x uses `getObjectForScreenID` *with* a null test; this one has none |
-| `ShipInterface::doEngUnmountComponent` 0x4e1229, 0x4e132f | `getModule(ship+0x1e4)` | the neighbouring `selectComponentSlot` (0x4e1f..) does test it |
-| `ShipTextData::getEngAddonFilename/ComponentFilename/addon text` 0x4edef8, 0x4eddef, ~0x4efa00 | `getModule(ship+0x1e4)` | |
+| `ScreenInterface::updateMousePosition` 0x556d5d | `Room::getObject(room+0x38)` | the sibling branch at line ~1242 of ScreenInterface.c uses `getObjectForScreenID` *with* a null test; this one has none |
+| `ShipInterface::doEngUnmountComponent` 0x4e1229, 0x4e132f | `getModule(ship+0x1e4)` | the function that sets the selected slot (ShipInterface.c ~2574) does test it |
+| `ShipTextData::getEngAddonFilename/getEngComponentFilename` and the addon-slot text builder 0x4edef8, 0x4eddef | `getModule(ship+0x1e4)` | |
 | `UI_ModuleRepair::mouseHoverUpdate` 0x573cb8, `getDragLook` 0x5745b5 | `getModule(...+0x1d8 / +0x1e4)` | uses **two different** "open module" fields (0x1d8 vs 0x1e4); worth finding out why |
 | `Weapon::runHomeLogic/runTravelLogic` | `getSensorDataForShipID` | the target-gone case; the personal-variants "torpedo lost target" patch already covers the torpedo path |
 | `ShipData::checkModuleBatt*` / `checkPwrCurrentModule*` | `getBattery/getModule` | mission-script conditions on ships without that module |
