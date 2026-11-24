@@ -178,7 +178,7 @@ Keep all of these files together in the same folder:
 - **`apply_data_fixes.py`** — Imported automatically by `ois_patcher.py` to generate the `oisbugfix` mod from your local `assets/` files.
 - **`dll_update.py`** — The optional DLL refresh described above; only used if you say yes.
 - **`bugs.md`** — Plain list of every bug fixed.
-- **`gog_port.py`** — Address table for the GOG build of the game (it is the same game compiled separately, so every address differs). Used automatically when `ois.exe` is the GOG one; Steam installs never touch it. Right now 34 of the 43 client fixes are available on GOG, and the newest nine are skipped (the run says which).
+- **`gog_port.py`** — Address table for the GOG build of the game (it is the same game compiled separately, so every address differs). Used automatically when `ois.exe` is the GOG one; Steam installs never touch it. All 47 client fixes are available on GOG (the 13 added after the first port were derived with `tools/gog/align.py` from a real GOG `ois.exe`); the personal-variants exe fixes are still Steam-only.
 - **`text_fixes.py`** — Spelling, grammar, and quest logic correction snippets loaded automatically by `apply_data_fixes.py`.
 - **`mod/oisbugfix/`** — Contains `modinfo.txt`; populated at install time by `apply_data_fixes.py`.
 
