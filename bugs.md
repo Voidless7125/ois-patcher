@@ -136,7 +136,7 @@ C1 and T0), and tied sensors always land in the same band, so a perfect 2-2-2-2-
 
 | Problem | Fix | Since |
 | :--- | :--- | :--- |
-| 25 of the 34 client fixes refused to apply on the GOG build of `ois.exe` (a separate compile, so every address differs) | Recognised by its build stamp and patched at the GOG addresses ([Issue #64](https://github.com/l33way/ois-patcher/issues/64)); the newest 9 are skipped there for now | 0.4.2 |
+| 25 of the 34 client fixes refused to apply on the GOG build of `ois.exe` (a separate compile, so every address differs) | Recognised by its build stamp and patched at the GOG addresses ([Issue #64](https://github.com/l33way/ois-patcher/issues/64)); all 47 client fixes now apply on the real GOG exe | 0.4.2 |
 
 ## Known and not yet fixed
 
