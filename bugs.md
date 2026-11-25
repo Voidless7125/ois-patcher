@@ -24,6 +24,7 @@ confirmed them in a live game yet.
 | Game crash on equipping a MKX-LADAR-A-2 or MKX-LADAR-A-T, and on connecting in co-op with one | Their 10-character ids were cut off in a 10-byte network field | Ids shortened (`mkxladr2`, `mkxladrt`) | 0.3.3 |
 | Saves with those LADARs no longer opened after the rename | The old ids were unknown | The old ids are accepted as aliases (client and server) | 0.4.2 |
 | Mail terminal crashed opening an email that does not exist | The email list was indexed with no bounds check | An out-of-range index is ignored | 0.4.2 |
+| Hailing a depot (the refill stations added in 0.4.2) crashed the game on Enter in the hail list | The hail screen sent depots (ship type 3) down the conversation path; a depot has no conversation, so a null pointer was read | Depots take the starbase comms path, like the hail list already assumed | 0.4.2 |
 | Enter on an empty News list showed `Invalid article number: 747614849` | Out-of-range read | Range checked | 0.4.0 |
 | "Escort: Make a Break" co-op scenario would not load | A one-character typo in an include | Corrected | 0.1.0 |
 | "Quit to Menu" or "Quit to OS" froze or did nothing when you were a LAN client | The client was never disconnected | Disconnects first | 0.3.6 |
@@ -45,6 +46,7 @@ confirmed them in a live game yet.
 | :--- | :--- | :--- | :--- |
 | Point-defence lasers could not shoot torpedoes, contrary to the Infopedia | Torpedoes were not valid targets | They are now, with weapons first | 0.4.0 |
 | Weapon spin-up got *faster* when a tube was damaged or low-efficiency | The factor was inverted compared with reload | Now `spinuptime * (2 - efficiency)` (client and server) | 0.4.2 |
+| A torpedo tube spinning up said `idle`, the same as a tube that was not armed | Both weapon-state texts showed the `idle` string for the spinning-up case | Reads `spinning up` (`spinning` on the short weapons-terminal text) | 0.4.2 |
 | "Hit Chce" on the point-defence page showed the average die roll, not a chance | The wrong formula | Shows 100 / sides | 0.4.2 |
 | Long point-defence names overlapped the ENABLE button | The name wrapped | Only the model name is shown when too long | 0.4.0 |
 

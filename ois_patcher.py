@@ -3314,6 +3314,76 @@ def fix_free_station_undock_permission(data, pe, ptch_va, ptch_off, cave_cursor,
     return cave_cursor
 
 
+# ============================================================
+# Fix 48: hailing a depot crashed the game.  PrivateCommsManager::switchTo (0x431140) sends type-1 starbases to the
+# station comms screen (docking / undocking requests) but type 0 (ships) and type 3 (depots) down the conversation
+# path.  The hail list already builds depot entries with generateSpaceStationComms, like starbases, and a depot has no
+# conversation, so the conversation path went on with a null conversation and firstValidConversationOption
+# (0x430EB0) read through it: a crash on Enter in the hail list.  Fix: a type-3 target takes the starbase path too, so
+# a depot answers like a station.  Client only (the server has no comms screen).
+# tools/comms/test_depot_hail.py checks the branch for every ship type.
+# ============================================================
+
+DEPOT_HAIL_SITE, DEPOT_HAIL_STATION, DEPOT_HAIL_OTHER = 0x0043116F, 0x00431174, 0x004311B3
+
+
+def fix_depot_hail(data, pe, ptch_va, ptch_off, cave_cursor):
+    label = "Hailing a depot no longer crashes (a depot answers like a starbase)"
+    if verify_site(data, pe, DEPOT_HAIL_SITE, bytes.fromhex("83F801753F"), label) is None \
+            or verify_site(data, pe, DEPOT_HAIL_OTHER, bytes.fromhex("85C07409"), label + " (other types)") is None:
+        FIXES_SKIPPED.append(label)
+        return cave_cursor
+    cave_va = ptch_va + cave_cursor
+    cave = bytearray(bytes.fromhex("83F803" "7505" "B801000000" "83F801"))        # CMP EAX,3 ; JNE +5 ; MOV EAX,1 ; CMP EAX,1
+    cave += b"\x0F\x85" + struct.pack("<i", DEPOT_HAIL_OTHER - (cave_va + len(cave) + 6))   # JNE  other ship types
+    cave += b"\xE9" + struct.pack("<i", DEPOT_HAIL_STATION - (cave_va + len(cave) + 5))     # JMP  the starbase path
+    cave += b"\x90" * (-len(cave) % 4)
+    neutralize_relocations(data, pe, DEPOT_HAIL_SITE, 5, label)
+    data[ptch_off + cave_cursor: ptch_off + cave_cursor + len(cave)] = cave
+    off = va_to_offset(pe, DEPOT_HAIL_SITE)
+    data[off:off + 5] = b"\xE9" + struct.pack("<i", cave_va - (DEPOT_HAIL_SITE + 5))
+    print(f"  [OK] {label}")
+    FIXES_APPLIED.append(label)
+    return cave_cursor + len(cave)
+
+
+# ============================================================
+# Fix 49: a torpedo tube that is spinning up said "idle", exactly like a tube that was not armed at all.  Both weapon
+# state texts (the short one on the weapons terminal, ShipTextData 0x4F1170, and the advanced one, 0x4F1740) test
+# Weapon::isSpinningUp and then push the same "`0idle" string as the not-armed case.  Fix: the spinning-up branch
+# pushes its own text ("spinning" / "spinning up").  The two strings live in the cave; each site is a same-size
+# `push len ; push str` edit that keeps the site's base relocation.  Client only.  tools/ui/test_spinup_label.py checks the sites and strings.
+# ============================================================
+
+SPINUP_LABEL_SITES = (
+    # (VA of `push 6 ; push "`0idle"`, replacement text)
+    (0x004F1192, b"`!spinning"),
+    (0x004F1758, b"`!spinning up"),
+)
+
+
+def fix_spinup_label(data, pe, ptch_va, ptch_off, cave_cursor):
+    label = "Torpedo tube state reads 'spinning up' while it spins up (it said 'idle')"
+    for va, _text in SPINUP_LABEL_SITES:
+        if verify_site(data, pe, va, bytes.fromhex("6A0668F0886100"), f"{label} (site {va:#x})") is None:
+            FIXES_SKIPPED.append(label)
+            return cave_cursor
+    strings, blob = [], bytearray()
+    for _va, text in SPINUP_LABEL_SITES:
+        strings.append(ptch_va + cave_cursor + len(blob))
+        blob += text + b"\0"
+        blob += b"\x90" * (-len(blob) % 4)
+    for (va, text), str_va in zip(SPINUP_LABEL_SITES, strings):
+        # The `push imm32` already carries a base relocation (it pointed at the old string); that entry is KEPT, so the
+        # loader rebases our string address under ASLR exactly as it did the original one.
+        off = va_to_offset(pe, va)
+        data[off:off + 7] = b"\x6A" + bytes([len(text)]) + b"\x68" + struct.pack("<I", str_va)
+    data[ptch_off + cave_cursor: ptch_off + cave_cursor + len(blob)] = blob
+    print(f"  [OK] {label}")
+    FIXES_APPLIED.append(label)
+    return cave_cursor + len(blob)
+
+
 def fix_resolution_list_duplicates(data, pe, ptch_va, ptch_off, cave_cursor):
     label = "Resolution setting: one click per distinct resolution (duplicate refresh-rate modes removed)"
     SITE, SKIP_APPEND, GO_APPEND = 0x004B0B47, 0x004B0B6A, 0x004B0B4D
@@ -4826,8 +4896,10 @@ def main():
         # table for at the GOG addresses and skips the rest (see that file); the Steam addresses are never used on it.
         ported, failed = gog_port.install(sys.modules[__name__])
         print("\nGOG build of ois.exe detected (not the Steam build): using the GOG address table.")
-        print(f"  {len(ported) + len(gog_port.NATIVE)} fix(es) are available for it; "
-              f"{len(gog_port.UNPORTED) + len(failed)} newer one(s) are not ported yet and will be skipped.")
+        not_ported = len(gog_port.UNPORTED) + len(failed)
+        print(f"  {len(ported) + len(gog_port.NATIVE)} fix(es) are available for it"
+              + (f"; {not_ported} newer one(s) are not ported yet and will be skipped." if not_ported else
+                 ": every client fix has a GOG address."))
 
     print("\nApplying fixes:")
     cave_cursor = VERSION_MARKER_SIZE  # first bytes of the cave are reserved for the version marker
@@ -4878,6 +4950,8 @@ def main():
     cave_cursor = fix_config_blank_line_log(data, pe, ptch_va, ptch_off, cave_cursor)
     cave_cursor = fix_eng_move_empty_slot(data, pe, ptch_va, ptch_off, cave_cursor)
     cave_cursor = fix_free_station_undock_permission(data, pe, ptch_va, ptch_off, cave_cursor)
+    cave_cursor = fix_depot_hail(data, pe, ptch_va, ptch_off, cave_cursor)
+    cave_cursor = fix_spinup_label(data, pe, ptch_va, ptch_off, cave_cursor)
 
     # --- PLUGIN HOOK ---
     if gog:
@@ -4914,10 +4988,8 @@ def main():
     else:
         print("ois_server.exe: not patched, see above (only matters for hosting/joining co-op games).")
     print(f"Bugfix mod: {'installed' if mod_installed else 'skipped, see above'}")
-    if gog:
-        print("GOG build: the fixes marked 'not ported yet' above are Steam-only for now. Note the LADAR id rename in the data "
-              "fixes is still applied, and the save-alias fix that goes with it is one of the unported ones, so an older save "
-              "with a LADAR installed may not open on GOG.")
+    if gog and (gog_port.UNPORTED or FIXES_SKIPPED):
+        print("GOG build: any fixes listed as skipped above are not available for the GOG build yet.")
     for line in dll_summary_lines() + (_plugin_call("summary_lines", default=[]) or []):
         print(line)
     print(f"\nPatched: {exe_path}")

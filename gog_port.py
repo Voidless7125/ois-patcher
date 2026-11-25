@@ -16,9 +16,9 @@ GOG install by the reporter) and adapted here.  How it works:
     A skipped fix is always safe; applying one at a Steam address in a different build is not.
   * Steam installs and the server exe never go through any of this.
 
-Status: MAP covers all 47 client fixes: the 34 of release 0.4.1 (25 in PORTED, 9 that sit at the same addresses in both
+Status: MAP covers all 49 client fixes: the 34 of release 0.4.1 (25 in PORTED, 9 that sit at the same addresses in both
 builds) came from the issue's table; the 13 added since were derived from a real GOG ois.exe with tools/gog/align.py
-(DERIVED below).  The patcher run on that exe applies all 47 and skips none.  tools/gog/test_gog_port.py checks the table
+(DERIVED below).  The patcher run on that exe applies all 49 and skips none (the last two, fix_depot_hail and fix_spinup_label, came from the same alignment later).  tools/gog/test_gog_port.py checks the table
 against the current source.  The least certain original entry was ShipData::currentlyBoardedShip (Steam 0x65D50C -> GOG
 0x65C3D4); the real exe confirms it.
 """
@@ -135,6 +135,9 @@ DERIVED = {
     0x590360: 0x58f420, 0x5dfa90: 0x5de9d8, 0x60e0f4: 0x60cf8c, 0x60e134: 0x60cfc4,
     0x60e264: 0x60d06c, 0x610c48: 0x60fc30, 0x616760: 0x615468, 0x6314f8: 0x630030,
     0x631528: 0x630060, 0x631764: 0x63029c, 0x65d760: 0x65c628, 0x65d768: 0x65c630,
+    # fix_depot_hail and fix_spinup_label (written after the GOG exe arrived; same alignment run)
+    0x43116f: 0x43116f, 0x431174: 0x431174, 0x4311b3: 0x4311b3, 0x4f1192: 0x4f1172, 0x4f1758: 0x4f1738,
+    0x6188f0: 0x61779c,
 }
 MAP.update(DERIVED)
 
@@ -147,7 +150,7 @@ PORTED = [
     "fix_movecamera_null_ship", "fix_stationary_while_docking", "fix_ship_sound_listener",
     "fix_scenario_autosave", "fix_power_drain_modifier", "fix_terminal_power_units",
     "fix_news_enter_without_selection", "fix_pds_panel_name_overflow",
-    "fix_nav_jump_range_efficiency", "fix_station_to_ship_crash",    "fix_pds_hit_chance_label", "fix_autopilot_overshoot_stop", "fix_module_id_alias", "fix_weapon_spinup", "fix_shop_stat_labels", "fix_jump_range_rating", "fix_solar_range_rating", "fix_sensor_ratings", "fix_resolution_list_duplicates", "fix_mail_select_out_of_range", "fix_config_blank_line_log", "fix_eng_move_empty_slot", "fix_free_station_undock_permission",
+    "fix_nav_jump_range_efficiency", "fix_station_to_ship_crash",    "fix_pds_hit_chance_label", "fix_autopilot_overshoot_stop", "fix_module_id_alias", "fix_weapon_spinup", "fix_shop_stat_labels", "fix_jump_range_rating", "fix_solar_range_rating", "fix_sensor_ratings", "fix_resolution_list_duplicates", "fix_mail_select_out_of_range", "fix_config_blank_line_log", "fix_eng_move_empty_slot", "fix_free_station_undock_permission", "fix_depot_hail", "fix_spinup_label",
 ]
 
 # Client fixes that need no table: their code and data sit at the same addresses in both builds (they applied on GOG before
